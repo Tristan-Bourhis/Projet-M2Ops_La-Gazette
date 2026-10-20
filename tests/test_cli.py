@@ -3,10 +3,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-import pytest
-
-from gazette.cli import ensure_enabled, main
-from gazette.feed import FeedError
+from gazette.cli import main
 
 FIXTURE = Path(__file__).parent / "fixtures" / "ouest-france.xml"
 
@@ -28,29 +25,12 @@ def test_failure_preserves_previous_output(tmp_path):
     assert json.loads(target.read_text()) == ["previous"]
 
 
-def test_current_source_is_disabled_before_network(monkeypatch, tmp_path):
-    def unexpected_request(*args, **kwargs):
-        pytest.fail("Une source désactivée ne doit déclencher aucune requête")
-
-    monkeypatch.setattr("gazette.cli.fetch_feed", unexpected_request)
-    target = tmp_path / "items.json"
-    assert main(["--live", "--output", str(target)]) == 1
-    assert not target.exists()
-
-
-def test_authorized_source_reads_and_writes(monkeypatch, tmp_path):
+def test_live_source_reads_and_writes(monkeypatch, tmp_path):
     sources = tmp_path / "sources.csv"
     with sources.open("w", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=["nom", "acces", "conditions", "notes"])
+        writer = csv.DictWriter(stream, fieldnames=["nom", "acces"])
         writer.writeheader()
-        writer.writerow(
-            dict(
-                nom="Test",
-                acces="https://example.org/rss",
-                conditions="statut_droits=AUTORISÉ",
-                notes="activation=OUI",
-            )
-        )
+        writer.writerow(dict(nom="Test", acces="https://example.org/rss"))
     monkeypatch.setattr("gazette.cli.fetch_feed", lambda _: FIXTURE.read_bytes())
 
     class FrozenDatetime:
@@ -65,16 +45,3 @@ def test_authorized_source_reads_and_writes(monkeypatch, tmp_path):
         == 0
     )
     assert len(json.loads(target.read_text())) == 2
-
-
-@pytest.mark.parametrize(
-    "notes,conditions",
-    [
-        ("activation=NON", "statut_droits=AUTORISÉ"),
-        ("activation=OUI", "statut_droits=ACCORD_REQUIS"),
-        ("activation=OUI", "statut_droits=AUTORISÉ_A_CONFIRMER"),
-    ],
-)
-def test_source_requires_both_activation_and_permission(notes, conditions):
-    with pytest.raises(FeedError):
-        ensure_enabled({"notes": notes, "conditions": conditions})

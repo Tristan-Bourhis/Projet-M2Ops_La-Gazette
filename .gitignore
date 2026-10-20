@@ -13,3 +13,4 @@ output/
 .aws/
 .codex/
 .agents/
+.DS_Store
