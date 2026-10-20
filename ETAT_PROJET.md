@@ -36,7 +36,7 @@ Jinja2, Nginx, OpenTofu selon l'infrastructure fournie.
 |---|---|---|
 | 2026-10-20 | Choix techniques prévisionnels du cadrage | `docs/cadrage.md` |
 | 2026-10-20 | Première source : Ouest-France ; fixture aux contenus fictifs | `tests/fixtures/README.md` |
-| 2026-10-20 | 8 sources (4 PQR, 4 PQN) retenues ; CGU consultées, usage limité aux titres, extraits, liens et dates | `sources.csv` |
+| 2026-10-20 | 8 sources (4 PQR, 4 PQN) retenues | `sources.csv` |
 | 2026-10-20 | `main` protégée : PR, 1 approbation, CI verte obligatoire | `CONTRIBUTING.md`, `docs/validation-td2.md` |
 
 ## Responsabilités
