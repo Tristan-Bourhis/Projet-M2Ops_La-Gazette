@@ -1,0 +1,20 @@
+<?xml version='1.0' encoding='utf-8'?>
+<rss version="2.0">
+  <channel>
+    <title>Ouest-France : échantillon TD 2</title>
+    <link>https://www.ouest-france.fr/</link>
+    <description>Deux entrées ; métadonnées uniquement.</description>
+    <item>
+      <title>Transports : une nouvelle ligne régionale</title>
+      <link>https://example.org/actualites/1</link>
+      <pubDate>Tue, 20 Oct 2026 11:54:52 GMT</pubDate>
+      <description>&lt;p&gt;Un service &lt;strong&gt;régional&lt;/strong&gt; &amp;amp; accessible.&lt;/p&gt;</description>
+    </item>
+    <item>
+      <title>Culture : ouverture d’une médiathèque</title>
+      <link>https://example.org/actualites/2</link>
+      <pubDate>Tue, 20 Oct 2026 11:40:30 GMT</pubDate>
+      <description>Un nouvel espace de lecture ouvre ses portes.</description>
+    </item>
+  </channel>
+</rss>
