@@ -12,14 +12,16 @@ Contrôles réalisés le 20 octobre 2026 sur la branche `feat/td2-socle`.
 | Fixture versionnée | Structure/dates de cette lecture ; contenus éditoriaux remplacés par des exemples |
 | Image finale | Construite, UID/GID 10001 ; export JSON vérifié sans réseau |
 | Test volontairement cassé en local | Copie temporaire : attendu 3 items au lieu de 2 ; pytest retourne 1 |
-| CI GitHub et publication GHCR | Vérification distante en cours ; voir les liens ajoutés ci-dessous |
+| CI rouge GitHub | Assertion volontairement fausse : 1 échec, 22 succès ; job image ignoré |
+| CI verte et publication GHCR | Vérification distante en cours après rétablissement de l'assertion |
 | Protection de `main` | Non activée lors de la lecture de l'API GitHub ; conventions écrites dans CONTRIBUTING |
 | Revue croisée entre équipes | À réaliser par une autre équipe ; aucune revue humaine simulée |
 
-Le test cassé local ne modifie pas la suite livrée. Le job de construction dépend
-du job de qualité et ne peut pas publier une image si ce dernier échoue.
-La validation distante doit confirmer ce comportement sur une vraie exécution
-GitHub Actions, puis confirmer le retour au vert.
+Le test cassé local ne modifie pas la suite livrée. La même assertion a ensuite
+été temporairement cassée sur la branche distante, commit `6dba0fb`, puis rétablie.
+[Exécution rouge vérifiée](https://github.com/Tristan-Bourhis/Projet-M2Ops_La-Gazette/actions/runs/39420416538) :
+le job de qualité échoue dans pytest (lint réussi), et le job image est ignoré.
+Cette exécution prouve qu'un test cassé empêche effectivement la publication.
 
 La lecture réelle ponctuelle ne vaut pas autorisation d'exploitation collective.
 Les sources restent désactivées ; seule la fixture fictive est utilisée
