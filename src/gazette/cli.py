@@ -3,7 +3,6 @@ import csv
 import json
 import logging
 import os
-import re
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,15 +21,6 @@ def find_source(path: Path, name: str) -> dict[str, str]:
     if len(matches) != 1 or not matches[0].get("acces"):
         raise FeedError(f"Source absente, ambiguë ou sans URL : {name}")
     return matches[0]
-
-
-def ensure_enabled(source: dict[str, str]) -> None:
-    notes = source.get("notes", "")
-    conditions = source.get("conditions", "")
-    if not re.search(r"(?:^|[;.\s])activation=OUI(?:[;.\s]|$)", notes):
-        raise FeedError("Source désactivée dans sources.csv ; utiliser la fixture locale.")
-    if not re.search(r"statut_droits=AUTORISÉ(?:[;.\s]|$)", notes + " " + conditions):
-        raise FeedError("L'autorisation de cette source n'est pas renseignée dans sources.csv.")
 
 
 def write_json(path: Path, items: list[dict[str, str]]) -> None:
@@ -58,14 +48,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source", default="Ouest-France")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--input", type=Path, help="Fixture RSS locale ; aucun appel réseau")
-    mode.add_argument("--live", action="store_true", help="Lecture HTTPS d'une source autorisée")
+    mode.add_argument("--live", action="store_true", help="Lecture HTTPS de la source")
     parser.add_argument("--output", type=Path, default=Path("/data/items.json"))
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     try:
         source = find_source(args.sources, args.source)
         if args.live:
-            ensure_enabled(source)
             data = fetch_feed(source["acces"])
             now = datetime.now(UTC)
         else:

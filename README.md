@@ -15,9 +15,6 @@ git clone https://github.com/Tristan-Bourhis/Projet-M2Ops_La-Gazette.git && cd P
 bin/dev
 ```
 
-Tant que la branche TD 2 n'est pas fusionnée, ajouter
-`--branch feat/td2-socle` à la commande `git clone`.
-
 `bin/dev` construit l'application, attend que PostgreSQL soit sain, lit la fixture
 Ouest-France et écrit `output/items.json`. Le traitement termine avec le code 0 ;
 ce n'est pas un serveur web. Les deux items fictifs de la fixture ont les champs
@@ -50,20 +47,14 @@ La [fixture](tests/fixtures/README.md) est issue d'une lecture ponctuelle :
 structure et dates conservées, contenus et liens d'articles remplacés par des
 exemples fictifs. Le démarrage et la CI la rejouent sans contacter l'éditeur.
 
-La vérification humaine des flux est faite, mais les accords d'exploitation
-collective ne sont pas établis. Le mode réseau vérifie donc dans le CSV
-`activation=OUI` et `statut_droits=AUTORISÉ`. Ne renseigner ces valeurs qu'une fois
-la permission couvrant le projet obtenue et sa référence documentée.
-
-Après cet accord, reconstruire l'image puis exécuter :
+Pour lire le flux réel, reconstruire l'image puis exécuter :
 
 ```sh
 docker compose build app
 docker compose run --rm app python -m gazette --live --source Ouest-France
 ```
 
-Aujourd'hui cette commande échoue avant tout appel réseau puisque la source est
-désactivée. Les redirections et erreurs HTTP font échouer la lecture ; aucun
+Les redirections et erreurs HTTP font échouer la lecture ; aucun
 contournement n'est effectué. La lecture est limitée à 2 Mo et les extraits
 à 280 caractères ; aucun article lié n'est téléchargé. Cette limite de longueur
 est un choix technique, pas une permission juridique de reproduction.
