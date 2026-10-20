@@ -25,7 +25,7 @@ def item(date="Tue, 20 Oct 2026 11:00:00 GMT", link="https://example.org/1") -> 
 
 def test_recorded_fixture_projection():
     result = parse_feed(FIXTURE.read_bytes())
-    assert len(result) == 2
+    assert len(result) == 3  # Sonde temporaire TD 2 : vérifier que la CI devient rouge.
     assert result[0] == {
         "title": "Transports : une nouvelle ligne régionale",
         "excerpt": "Un service régional & accessible.",
