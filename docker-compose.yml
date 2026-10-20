@@ -1,0 +1,45 @@
+services:
+  app:
+    build:
+      context: .
+      target: final
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - gazette-output:/data
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  postgres:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_DB: gazette
+      POSTGRES_USER: gazette
+      # Identifiants de développement, sans port publié sur l'hôte.
+      POSTGRES_PASSWORD: gazette-local-only
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gazette -d gazette"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  tests:
+    profiles: [test]
+    build:
+      context: .
+      target: test
+    network_mode: none
+
+volumes:
+  postgres-data:
+  gazette-output:

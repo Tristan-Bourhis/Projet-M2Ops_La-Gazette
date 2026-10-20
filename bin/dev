@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+docker compose up -d --build --wait postgres
+docker compose build app
+docker compose run --rm --no-deps app
+mkdir -p output
+docker compose run --rm --no-deps app cat /data/items.json > output/items.json
+printf '%s\n' "JSON disponible : output/items.json"

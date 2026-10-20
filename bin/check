@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+ruff check --no-cache .
+ruff format --check --no-cache .
+python -m pytest -p no:cacheprovider

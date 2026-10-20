@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools==84.2.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "la-gazette"
+version = "0.1.0"
+description = "Socle de collecte RSS de La gazette"
+requires-python = ">=3.12"
+dependencies = ["feedparser==6.0.14", "httpx==0.28.1", "defusedxml==0.7.1"]
+
+[project.scripts]
+gazette = "gazette.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = [".agents", ".codex", ".aws"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
