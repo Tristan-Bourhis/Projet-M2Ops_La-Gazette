@@ -42,6 +42,47 @@ services:
       target: test
     network_mode: none
 
+  prefect-server:
+    image: prefecthq/prefect:3.9.0-python3.12
+    command: ["prefect", "server", "start", "--host", "0.0.0.0"]
+    ports:
+      - "127.0.0.1:4200:4200"
+    volumes:
+      - prefect-data:/root/.prefect
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4200/api/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+
+  collecteur:
+    build:
+      context: .
+      target: final
+    command: ["python", "-m", "gazette.flows"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      prefect-server:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://gazette:gazette-local-only@postgres:5432/gazette
+      PREFECT_API_URL: http://prefect-server:4200/api
+      PREFECT_HOME: /tmp/prefect
+      PREFECT_LOGGING_EXTRA_LOGGERS: gazette
+    volumes:
+      - gazette-output:/data
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs:
+      - /tmp
+
 volumes:
   postgres-data:
   gazette-output:
+  prefect-data:
