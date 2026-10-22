@@ -15,6 +15,7 @@ RUN groupadd --gid 10001 gazette && useradd --uid 10001 --gid gazette --no-creat
 WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
 COPY sources.csv ./
+COPY migrations ./migrations
 COPY tests/fixtures/ouest-france.xml ./tests/fixtures/ouest-france.xml
 USER 10001:10001
 CMD ["python", "-m", "gazette"]

@@ -4,6 +4,7 @@ import argparse
 import csv
 import json
 import logging
+import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -249,13 +250,30 @@ def collect_all(
     return summary
 
 
+def run_collection(sources_csv: Path, output: Path) -> dict:
+    """Avec DATABASE_URL : état dans PostgreSQL (migré, synchronisé). Sinon : en mémoire."""
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        return collect_all(MemorySources.from_csv(sources_csv), output)
+    from gazette.db import PostgresSources, connect, migrate, sync_sources
+
+    with connect(database_url) as conn:
+        applied = migrate(conn)
+        if applied:
+            log_event(logging.INFO, "migrations_appliquees", versions=applied)
+        sync_sources(conn, sources_csv)
+        return collect_all(PostgresSources(conn), output)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Collecter les sources actives.")
     parser.add_argument("--sources", type=Path, default=Path("sources.csv"))
     parser.add_argument("--output", type=Path, default=Path("/data/articles_bruts"))
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    summary = collect_all(MemorySources.from_csv(args.sources), args.output)
+    # Les lignes "HTTP Request: ..." de httpx doublonnent nos journaux JSON.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    summary = run_collection(args.sources, args.output)
     return 0 if summary["ok"] else 1
 
 

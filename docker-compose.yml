@@ -9,6 +9,8 @@ services:
     volumes:
       - gazette-output:/data
     restart: "no"
+    environment:
+      DATABASE_URL: postgresql://gazette:gazette-local-only@postgres:5432/gazette
     security_opt:
       - no-new-privileges:true
     cap_drop: [ALL]

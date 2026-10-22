@@ -10,6 +10,8 @@ idna==3.20
 iniconfig==2.3.1
 packaging==26.3
 pluggy==1.7.0
+psycopg==3.2.13
+psycopg-binary==3.2.13
 Pygments==2.21.0
 pytest==9.1.1
 ruff==0.17.1
