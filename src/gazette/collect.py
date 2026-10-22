@@ -186,6 +186,24 @@ def fetch_with_backoff(
     raise AssertionError("inatteignable")
 
 
+def _log_source(record: dict, level: int) -> None:
+    log_event(level, "source", **record)
+    if record["statut"] == "sommeil":
+        log_event(
+            logging.ERROR,
+            "source_mise_en_sommeil",
+            source=record["source"],
+            action="vérifier l'URL du flux puis remettre actif = true",
+        )
+
+
+def _count_failure(repo: SourceRepository, record: dict) -> int:
+    state = repo.record_failure(record["source"])
+    record["statut"] = "echec" if state.actif else "sommeil"
+    record["echecs_consecutifs"] = state.echecs_consecutifs
+    return logging.WARNING if state.actif else logging.ERROR
+
+
 def collect_source(
     client: httpx.Client,
     repo: SourceRepository,
@@ -194,9 +212,12 @@ def collect_source(
     clock: Callable[[], datetime],
     sleep: Callable[[float], None],
 ) -> dict:
+    """Collecte une source. Une erreur passagère est laissée « en attente » (statut
+    indisponible, non journalisée) : collect_all décide à la fin du passage."""
     started = time.monotonic()
     record = {"source": source.nom, "statut": "ok", "http": None, "recus": 0, "ecrits": 0}
     record["ignores"] = 0
+    level = logging.INFO
     try:
         result = fetch_with_backoff(client, source, sleep)
         record["http"] = result.status
@@ -213,30 +234,17 @@ def collect_source(
             etag, last_modified = result.etag, result.last_modified
         repo.record_success(source.nom, now, etag, last_modified)
         record["echecs_consecutifs"] = 0
-        level = logging.INFO
     except TransientError as error:
-        # Erreur passagère qui persiste après le backoff (réseau, 5xx, timeout) :
-        # pas comptée pour la mise en sommeil (consigne : 404 ou flux cassé seulement).
-        # Sinon une coupure réseau de la machine endormirait toutes les sources.
         record["statut"] = "indisponible"
         record["erreur"] = str(error)
         record["echecs_consecutifs"] = source.echecs_consecutifs
-        level = logging.WARNING
     except (PermanentError, FeedError) as error:
-        state = repo.record_failure(source.nom)
-        record["statut"] = "echec" if state.actif else "sommeil"
+        # Réponse reçue mais inexploitable (404, redirection, flux cassé) : compté tout de suite.
         record["erreur"] = str(error)
-        record["echecs_consecutifs"] = state.echecs_consecutifs
-        level = logging.WARNING if state.actif else logging.ERROR
+        level = _count_failure(repo, record)
     record["duree_ms"] = round((time.monotonic() - started) * 1000)
-    log_event(level, "source", **record)
-    if record["statut"] == "sommeil":
-        log_event(
-            logging.ERROR,
-            "source_mise_en_sommeil",
-            source=source.nom,
-            action="vérifier l'URL du flux puis remettre actif = true",
-        )
+    if record["statut"] != "indisponible":
+        _log_source(record, level)
     return record
 
 
@@ -255,6 +263,20 @@ def collect_all(
             if index:
                 sleep(PAUSE_BETWEEN_SOURCES)
             records.append(collect_source(client, repo, source, output, clock, sleep))
+    # Erreurs passagères (429, 5xx, timeout, réseau) décidées en fin de passage :
+    # - aucune source n'a obtenu de réponse HTTP : c'est la machine (réseau, veille),
+    #   on ne compte rien, sinon une coupure endormirait toutes les sources ;
+    # - au moins une réponse obtenue : la source en erreur est en panne, +1 (sommeil à 3).
+    network_ok = any(r["statut"] != "indisponible" for r in records)
+    for record in records:
+        if record["statut"] != "indisponible":
+            continue
+        if network_ok:
+            level = _count_failure(repo, record)
+        else:
+            record["note"] = "aucune source joignable : échec non compté (réseau de la machine ?)"
+            level = logging.WARNING
+        _log_source(record, level)
     summary = {
         "sources": len(sources),
         "ok": sum(r["statut"] in {"ok", "inchange"} for r in records),

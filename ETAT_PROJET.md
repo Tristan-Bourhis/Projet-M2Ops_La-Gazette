@@ -44,8 +44,8 @@ Jinja2, Nginx, OpenTofu selon l'infrastructure fournie.
 | 2026-10-22 | Orchestrateur : Prefect (consigne : Prefect ou Airflow ; Airflow jugé trop lourd) | `src/gazette/flows.py` |
 | 2026-10-22 | Collecte toutes les 30 min : le flux Ouest-France ne couvre qu'≈ 40 min | `docs/donnees.md` |
 | 2026-10-22 | Brut = un JSON par article, clé (source, lien) ; aucun filtre avant le TD 4 | `docs/donnees.md` |
-| 2026-10-22 | Sommeil après 3 échecs **permanents** consécutifs (404, redirection, flux cassé) ; run Prefect en échec tant qu'une source dort | `src/gazette/collect.py`, `flows.py` |
-| 2026-10-22 | Erreur passagère (429, 5xx, timeout, réseau) après backoff = `indisponible`, non comptée pour le sommeil : une coupure réseau de la machine n'endort plus les sources (revue de l'équipe) | `src/gazette/collect.py`, `docs/exploitation.md` |
+| 2026-10-22 | Sommeil après 3 échecs consécutifs (404, flux cassé, ou 5xx/timeout quand les autres sources répondent) ; run Prefect en échec tant qu'une source dort | `src/gazette/collect.py`, `flows.py` |
+| 2026-10-22 | Erreurs passagères décidées en fin de passage : comptées si au moins une source a obtenu une réponse HTTP (la source est en panne), ignorées sinon (la machine est hors ligne) ; proposé par la revue de l'équipe | `src/gazette/collect.py`, `docs/exploitation.md` |
 | 2026-10-22 | Pas de `retries` sur le flow : le run suivant (30 min) sert de reprise | `src/gazette/flows.py` |
 | 2026-10-22 | Dépendances psycopg et Prefect ajoutées dans la PR de la collecte (exception à la règle « PR dédiée » : nécessaires à la fonctionnalité) | PR #3 |
 
@@ -71,6 +71,6 @@ Jinja2, Nginx, OpenTofu selon l'infrastructure fournie.
 ## Prochaines étapes
 
 1. TD 4 : relever 10 items à exclure dans `docs/qualite.md`, puis nettoyage et contrôle qualité.
-2. Une source `indisponible` en continu ne s'endort pas : surveiller l'âge de `derniere_reussite` (alerte au TD 8). Procédures : `docs/exploitation.md`.
+2. Procédures d'exploitation : `docs/exploitation.md`. Limite : avec une seule source dans `sources.csv`, ses erreurs passagères ne seraient jamais comptées.
 3. Revue croisée et retour consigné dans `docs/validation-td2.md`.
 4. Un commit par membre via une PR.

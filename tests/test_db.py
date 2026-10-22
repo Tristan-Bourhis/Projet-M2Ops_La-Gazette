@@ -10,6 +10,8 @@ import pytest
 from gazette.collect import collect_all
 
 psycopg = pytest.importorskip("psycopg")
+from psycopg.conninfo import conninfo_to_dict  # noqa: E402
+
 from gazette.db import PostgresSources, connect, migrate, sync_sources  # noqa: E402
 
 URL = os.environ.get("TEST_DATABASE_URL")
@@ -21,6 +23,9 @@ NOW = datetime(2026, 10, 22, 8, tzinfo=UTC)
 
 @pytest.fixture
 def conn(tmp_path):
+    # Ces tests suppriment les tables : jamais sur la base de la collecte.
+    if not conninfo_to_dict(URL).get("dbname", "").endswith("_test"):
+        pytest.fail("TEST_DATABASE_URL doit viser une base dont le nom finit par _test.")
     with connect(URL) as connection:
         connection.execute("DROP TABLE IF EXISTS sources, schema_migrations")
         yield connection
