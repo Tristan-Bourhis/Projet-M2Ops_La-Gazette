@@ -27,9 +27,15 @@ def conn(tmp_path):
     if not conninfo_to_dict(URL).get("dbname", "").endswith("_test"):
         pytest.fail("TEST_DATABASE_URL doit viser une base dont le nom finit par _test.")
     with connect(URL) as connection:
-        connection.execute("DROP TABLE IF EXISTS sources, schema_migrations")
+        connection.execute(
+            "DROP TABLE IF EXISTS rejets, articles_propres, controles_qualite, sources,"
+            " schema_migrations"
+        )
         yield connection
-        connection.execute("DROP TABLE IF EXISTS sources, schema_migrations")
+        connection.execute(
+            "DROP TABLE IF EXISTS rejets, articles_propres, controles_qualite, sources,"
+            " schema_migrations"
+        )
 
 
 def write_csv(path, url="https://www.ouest-france.fr/rss/une"):
@@ -38,7 +44,11 @@ def write_csv(path, url="https://www.ouest-france.fr/rss/une"):
 
 
 def test_migrations_are_applied_once(conn):
-    assert migrate(conn, MIGRATIONS) == ["001_creer_table_sources.sql"]
+    assert migrate(conn, MIGRATIONS) == [
+        "001_creer_table_sources.sql",
+        "002_creer_tables_nettoyage.sql",
+        "003_alerte_envoyee.sql",
+    ]
     assert migrate(conn, MIGRATIONS) == []
 
 
@@ -97,3 +107,33 @@ def test_success_is_recorded(conn, tmp_path):
     row = conn.execute("SELECT * FROM sources").fetchone()
     assert row["derniere_reussite"] == NOW
     assert row["etag"] == '"v1"'
+
+
+def test_clean_store_on_postgres(conn, tmp_path):
+    import json
+    from datetime import timedelta
+
+    from gazette.clean import process
+    from gazette.db import PostgresCleanStore
+
+    migrate(conn, MIGRATIONS)
+    raw = tmp_path / "articles_bruts" / "le-monde"
+    raw.mkdir(parents=True)
+    for id_, titre in [("a1", "Tempête Austen : dix départements en vigilance"), ("a2", "Vidéo")]:
+        item = {
+            "id": id_,
+            "source": "Le Monde",
+            "lien": f"https://e.fr/{id_}",
+            "titre": titre,
+            "resume": "x",
+            "publie_le": (NOW - timedelta(hours=1)).isoformat(),
+            "recupere_le": NOW.isoformat(),
+            "rubrique": None,
+        }
+        (raw / f"{id_}.json").write_text(json.dumps(item), encoding="utf-8")
+    store = PostgresCleanStore(conn)
+    result = process(store, tmp_path / "articles_bruts", tmp_path / "r", ["Le Monde"], NOW)
+    assert (result["gardes"], result["rejetes"]) == (1, 1)
+    assert conn.execute("SELECT regle FROM rejets").fetchone()["regle"] == "R06_titre_vide"
+    assert store.alerted_checks() == set()
+    assert process(store, tmp_path / "articles_bruts", tmp_path / "r", [], NOW)["entres"] == 0
