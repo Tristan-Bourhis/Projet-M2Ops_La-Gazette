@@ -101,3 +101,69 @@ def sync_sources(conn: psycopg.Connection, csv_path: Path) -> None:
             "UPDATE sources SET actif = false WHERE NOT (nom = ANY(%s))",
             ([row["nom"] for row in rows],),
         )
+
+
+class PostgresCleanStore:
+    """Tables articles_propres, rejets et controles_qualite (migration 002)."""
+
+    def __init__(self, conn: psycopg.Connection):
+        self.conn = conn
+
+    def known_ids(self):
+        rows = self.conn.execute("SELECT id FROM articles_propres UNION ALL SELECT id FROM rejets")
+        return {row["id"] for row in rows}
+
+    def recent_keys(self, since):
+        rows = self.conn.execute(
+            "SELECT id, cle_titre FROM articles_propres WHERE publie_le >= %s", (since,)
+        )
+        return [(row["id"], row["cle_titre"]) for row in rows]
+
+    def save(self, kept, rejected, at):
+        with self.conn.transaction(), self.conn.cursor() as cursor:
+            cursor.executemany(
+                "INSERT INTO articles_propres (id, source, lien, titre, extrait, publie_le,"
+                " recupere_le, rubrique, cle_titre, brut, traite_le) VALUES (%(id)s, %(source)s,"
+                " %(lien)s, %(titre)s, %(extrait)s, %(publie_le)s, %(recupere_le)s, %(rubrique)s,"
+                " %(cle_titre)s, %(brut)s, %(traite_le)s) ON CONFLICT (id) DO NOTHING",
+                [row | {"traite_le": at} for row in kept],
+            )
+            cursor.executemany(
+                "INSERT INTO rejets (id, source, lien, titre, publie_le, regle, doublon_de, brut,"
+                " traite_le) VALUES (%(id)s, %(source)s, %(lien)s, %(titre)s, %(publie_le)s,"
+                " %(regle)s, %(doublon_de)s, %(brut)s, %(traite_le)s) ON CONFLICT (id) DO NOTHING",
+                [row | {"traite_le": at} for row in rejected],
+            )
+
+    def day_rows(self, day):
+        rows = self.conn.execute(
+            "SELECT id, source, titre, NULL::text AS regle FROM articles_propres"
+            " WHERE (traite_le AT TIME ZONE 'UTC')::date = %(day)s"
+            " UNION ALL SELECT id, source, titre, regle FROM rejets"
+            " WHERE (traite_le AT TIME ZONE 'UTC')::date = %(day)s",
+            {"day": day},
+        )
+        return list(rows)
+
+    def clean_since(self, since):
+        rows = self.conn.execute(
+            "SELECT id, source, titre, publie_le, traite_le FROM articles_propres"
+            " WHERE traite_le >= %s",
+            (since,),
+        )
+        return list(rows)
+
+    def record_checks(self, checks, at):
+        with self.conn.cursor() as cursor:
+            cursor.executemany(
+                "INSERT INTO controles_qualite (execute_le, controle, ok, valeur, seuil, detail)"
+                " VALUES (%s, %s, %s, %s, %s, %s)",
+                [(at, c.id, c.ok, c.valeur, c.seuil, c.detail) for c in checks],
+            )
+
+    def failing_checks(self):
+        rows = self.conn.execute(
+            "SELECT DISTINCT ON (controle) controle, ok FROM controles_qualite"
+            " ORDER BY controle, execute_le DESC, id DESC"
+        )
+        return {row["controle"] for row in rows if not row["ok"]}

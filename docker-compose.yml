@@ -11,6 +11,7 @@ services:
     restart: "no"
     environment:
       DATABASE_URL: postgresql://gazette:gazette-local-only@postgres:5432/gazette
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
     security_opt:
       - no-new-privileges:true
     cap_drop: [ALL]
@@ -72,6 +73,8 @@ services:
       PREFECT_API_URL: http://prefect-server:4200/api
       PREFECT_HOME: /tmp/prefect
       PREFECT_LOGGING_EXTRA_LOGGERS: gazette
+      # Webhook Discord/Slack des alertes qualité, lu depuis .env (jamais commité).
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
     volumes:
       - gazette-output:/data
     restart: unless-stopped

@@ -62,3 +62,36 @@ Conséquence : collecte toutes les 30 minutes, sinon on perd des articles d'Oues
 Seules 2 sources sur 8 permettent d'éviter un téléchargement inutile.
 `rubrique` est souvent vide (Le Monde n'envoie pas de `<category>`), alors que la rubrique
 figure dans l'URL (`/planete/`) : piste pour le TD 4.
+
+## Articles nettoyés (TD 4) : contrat de données
+
+Migration `migrations/002_creer_tables_nettoyage.sql`. Alimentées à chaque passage par la
+tâche `nettoyage-et-controles` (`src/gazette/clean.py`), après la collecte.
+
+**`articles_propres`** : un article gardé. `id` (même id que le brut), `source`, `lien`,
+`titre` (non vide), `extrait` (≤ 280 car., HTML et entités retirés, encodage réparé),
+`publie_le` (UTC, non nul, moins de 24 h au traitement), `recupere_le`, `rubrique`,
+`cle_titre` (titre normalisé, pour les doublons), `brut` (chemin du fichier brut), `traite_le`.
+
+**`rejets`** : mêmes champs d'identification, plus `regle` (`R01_publi`…) et `doublon_de`.
+
+**`controles_qualite`** : historique des contrôles (`controle`, `ok`, `valeur`, `seuil`,
+`detail`, `execute_le`).
+
+**Traçabilité** : d'un article propre ou rejeté, `brut` donne le fichier
+`articles_bruts/<source>/<id>.json`, et `source` la ligne de `sources.csv`.
+
+**Fraîcheur** : un article propre a moins de 24 h au moment de son traitement ; le
+traitement suit la collecte (toutes les 30 min).
+
+**Ce qu'on ne stocke pas** : texte intégral, images, auteurs, commentaires, données
+personnelles. L'extrait est borné à 280 caractères.
+
+**Rétention** (règle écrite, purge automatique à mettre en place avec l'infrastructure) :
+
+| Donnée | Durée | Ensuite |
+|---|---|---|
+| `articles_bruts/` | 90 jours | supprimés |
+| `articles_propres`, `rejets` | 90 jours | supprimés |
+| `controles_qualite`, `rapports/` | 1 an | supprimés |
+| éditions publiées (TD 7) | 1 mois en ligne | archivées en stockage froid |

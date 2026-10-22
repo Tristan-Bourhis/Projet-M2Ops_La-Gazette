@@ -54,6 +54,7 @@ Jinja2, Nginx, OpenTofu selon l'infrastructure fournie.
 | Membre | Composantes |
 |---|---|
 | Riad | Collecte (TD 3) : collecteur, stockage brut, table `sources`, orchestration Prefect |
+| Samy | Nettoyage et qualité (TD 4) : normalisation, règles d'exclusion, `articles_propres`, rapport, contrôles et alertes |
 | _à compléter_ | |
 
 ## Problèmes ouverts
@@ -70,7 +71,7 @@ Jinja2, Nginx, OpenTofu selon l'infrastructure fournie.
 
 ## Prochaines étapes
 
-1. TD 4 : relever 10 items à exclure dans `docs/qualite.md`, puis nettoyage et contrôle qualité.
+1. TD 4 : brancher le webhook d'alerte (`.env`), déclencher l'alerte une fois, lire le rapport 3 matins et ajuster une règle (`docs/qualite.md`).
 2. Procédures d'exploitation : `docs/exploitation.md`. Limite : avec une seule source dans `sources.csv`, ses erreurs passagères ne seraient jamais comptées.
 3. Revue croisée et retour consigné dans `docs/validation-td2.md`.
 4. Un commit par membre via une PR.
