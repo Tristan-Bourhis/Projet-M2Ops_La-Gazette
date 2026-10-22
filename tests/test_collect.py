@@ -60,6 +60,7 @@ def test_second_pass_is_conditional_and_polite(tmp_path):
         "mises_en_sommeil": 0,
         "recus": 0,
         "ecrits": 0,
+        "en_sommeil": [],
     }
     assert repo.sources["Ouest-France"].derniere_reussite == NOW
 
@@ -97,7 +98,8 @@ def test_source_down_backoff_then_sleep(tmp_path, down_server):
     assert waits == [1, 2, 4] * 3
     assert len(hits) == 4 * 3
     assert repo.sources["En panne"].actif is False
-    assert run(repo, tmp_path)["sources"] == 0
+    after = run(repo, tmp_path)
+    assert (after["sources"], after["en_sommeil"]) == (0, ["En panne"])
 
 
 def test_permanent_error_is_not_retried(tmp_path):

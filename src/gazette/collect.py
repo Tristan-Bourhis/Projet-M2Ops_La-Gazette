@@ -58,6 +58,8 @@ class SourceRepository(Protocol):
 
     def record_failure(self, nom: str) -> Source: ...
 
+    def sleeping_sources(self) -> list[str]: ...
+
 
 class MemorySources:
     """État des sources en mémoire (tests, et premier jet avant PostgreSQL)."""
@@ -87,6 +89,13 @@ class MemorySources:
         if source.echecs_consecutifs >= SLEEP_AFTER_FAILURES:
             source.actif = False
         return source
+
+    def sleeping_sources(self):
+        return sorted(
+            source.nom
+            for source in self.sources.values()
+            if not source.actif and source.echecs_consecutifs >= SLEEP_AFTER_FAILURES
+        )
 
 
 @dataclass
@@ -245,6 +254,7 @@ def collect_all(
         "mises_en_sommeil": sum(r["statut"] == "sommeil" for r in records),
         "recus": sum(r["recus"] for r in records),
         "ecrits": sum(r["ecrits"] for r in records),
+        "en_sommeil": repo.sleeping_sources(),
     }
     log_event(logging.INFO, "collecte_terminee", **summary)
     return summary

@@ -19,6 +19,13 @@ def collecte(sources: str = "sources.csv", output: str = "/data/articles_bruts")
     get_run_logger().info("Bilan de la collecte : %s", summary)
     if summary["sources"] and not summary["ok"]:
         raise RuntimeError("Aucune source n'a répondu : run marqué en échec.")
+    if summary["en_sommeil"]:
+        # Run en rouge tant qu'une source dort : l'alerte reste visible dans Prefect
+        # jusqu'à la réparation (corriger l'URL dans sources.csv).
+        raise RuntimeError(
+            f"Source(s) en sommeil après 3 échecs : {', '.join(summary['en_sommeil'])}."
+            " Vérifier l'URL dans sources.csv."
+        )
     return summary
 
 
