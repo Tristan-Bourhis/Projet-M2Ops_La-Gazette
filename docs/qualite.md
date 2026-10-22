@@ -72,3 +72,12 @@ Chaque passage : résultats dans la table `controles_qualite`, logs JSON, et art
 Prefect (rapport, contrôles, métriques). Quand un contrôle **passe** au rouge, une alerte
 part vers le webhook `ALERT_WEBHOOK_URL` (Discord ou Slack) ; pas de nouvelle alerte tant
 qu'il reste rouge. Le run Prefect passe aussi en échec.
+
+## Alerte déclenchée pour de vrai (22/10/2026)
+
+- 14:48 : alerte de test reçue dans le salon Discord de l'équipe (`--alerte-test`).
+- Puis vrai déclenchement : un article propre passé à une date future en base,
+  Quick run → `C01_aucune_date_future` en échec, run Prefect rouge, message reçu :
+  « La gazette : 1 contrôle(s) qualité en échec • C01_aucune_date_future : 1da5eedd8966 ».
+- Date remise en état, run suivant vert. Une seule alerte envoyée : pas de répétition
+  tant que le contrôle reste rouge.
