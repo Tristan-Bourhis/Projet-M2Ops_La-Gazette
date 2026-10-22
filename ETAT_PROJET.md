@@ -8,7 +8,7 @@ Dernière mise à jour : 22 octobre 2026 (fin du TD 3).
 |---|---|---|---|
 | 1 | Cadrage | Terminé | `docs/cadrage.md`, `docs/Schema-architecture-pipeline.png`, `sources.csv` |
 | 2 | Socle | Terminé, sauf revue croisée | PR #1 fusionnée, CI verte sur `main`, `docs/validation-td2.md` |
-| 3 | Collecte | Terminé | PR #3 et finitions, collecte Prefect toutes les 30 min, `docs/donnees.md` |
+| 3 | Collecte | Terminé | PR #3 et PR de finitions, collecte Prefect toutes les 30 min, `docs/donnees.md`, `docs/exploitation.md` |
 | 4 | Qualité | À faire | — |
 | 5 | MLOps 1 | À faire | — |
 | 6 | MLOps 2 | À faire | — |
@@ -44,7 +44,9 @@ Jinja2, Nginx, OpenTofu selon l'infrastructure fournie.
 | 2026-10-22 | Orchestrateur : Prefect (consigne : Prefect ou Airflow ; Airflow jugé trop lourd) | `src/gazette/flows.py` |
 | 2026-10-22 | Collecte toutes les 30 min : le flux Ouest-France ne couvre qu'≈ 40 min | `docs/donnees.md` |
 | 2026-10-22 | Brut = un JSON par article, clé (source, lien) ; aucun filtre avant le TD 4 | `docs/donnees.md` |
-| 2026-10-22 | Sommeil après 3 échecs consécutifs ; run Prefect en échec tant qu'une source dort | `src/gazette/collect.py`, `flows.py` |
+| 2026-10-22 | Sommeil après 3 échecs **permanents** consécutifs (404, redirection, flux cassé) ; run Prefect en échec tant qu'une source dort | `src/gazette/collect.py`, `flows.py` |
+| 2026-10-22 | Erreur passagère (429, 5xx, timeout, réseau) après backoff = `indisponible`, non comptée pour le sommeil : une coupure réseau de la machine n'endort plus les sources (revue de l'équipe) | `src/gazette/collect.py`, `docs/exploitation.md` |
+| 2026-10-22 | Pas de `retries` sur le flow : le run suivant (30 min) sert de reprise | `src/gazette/flows.py` |
 | 2026-10-22 | Dépendances psycopg et Prefect ajoutées dans la PR de la collecte (exception à la règle « PR dédiée » : nécessaires à la fonctionnalité) | PR #3 |
 
 ## Responsabilités
@@ -69,5 +71,6 @@ Jinja2, Nginx, OpenTofu selon l'infrastructure fournie.
 ## Prochaines étapes
 
 1. TD 4 : relever 10 items à exclure dans `docs/qualite.md`, puis nettoyage et contrôle qualité.
-2. Revue croisée et retour consigné dans `docs/validation-td2.md`.
-3. Un commit par membre via une PR.
+2. Une source `indisponible` en continu ne s'endort pas : surveiller l'âge de `derniere_reussite` (alerte au TD 8). Procédures : `docs/exploitation.md`.
+3. Revue croisée et retour consigné dans `docs/validation-td2.md`.
+4. Un commit par membre via une PR.
