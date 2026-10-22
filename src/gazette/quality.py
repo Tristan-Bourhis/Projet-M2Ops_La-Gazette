@@ -116,12 +116,19 @@ def send_alert(message: str, webhook_url: str | None, transport=None) -> bool:
 
 def alert_on_new_failures(
     store: CleanStore, checks: list[Check], webhook_url: str | None, transport=None
-) -> list[str]:
-    """Alerte quand un contrôle passe au rouge, pas à chaque passage tant qu'il le reste."""
-    already = store.failing_checks()
+) -> set[str]:
+    """Alerte quand un contrôle passe au rouge, pas à chaque passage tant qu'il le reste.
+
+    Renvoie les contrôles rouges dont l'équipe a bien été prévenue. Si l'envoi échoue
+    (pas de .env, Discord injoignable), ils n'en font pas partie : on réessaie au passage
+    suivant, au lieu de perdre l'alerte.
+    """
+    already = store.alerted_checks()
+    failing = {check.id for check in checks if not check.ok}
     new = [check for check in checks if not check.ok and check.id not in already]
-    if new:
-        lines = [f"🚨 La gazette : {len(new)} contrôle(s) qualité en échec"]
-        lines += [f"• {check.id} : {check.detail}" for check in new]
-        send_alert("\n".join(lines), webhook_url, transport)
-    return [check.id for check in new]
+    if not new:
+        return failing & already
+    lines = [f"🚨 La gazette : {len(new)} contrôle(s) qualité en échec"]
+    lines += [f"• {check.id} : {check.detail}" for check in new]
+    sent = send_alert("\n".join(lines), webhook_url, transport)
+    return failing & already | ({check.id for check in new} if sent else set())

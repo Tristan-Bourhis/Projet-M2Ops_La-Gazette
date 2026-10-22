@@ -34,8 +34,8 @@ class CleanStore(Protocol):
     def save(self, kept: list[dict], rejected: list[dict], at: datetime) -> None: ...
     def day_rows(self, day: date) -> list[dict]: ...
     def clean_since(self, since: datetime) -> list[dict]: ...
-    def record_checks(self, checks: list, at: datetime) -> None: ...
-    def failing_checks(self) -> set[str]: ...
+    def record_checks(self, checks: list, at: datetime, alerted: set[str]) -> None: ...
+    def alerted_checks(self) -> set[str]: ...
 
 
 class MemoryCleanStore:
@@ -44,7 +44,7 @@ class MemoryCleanStore:
     def __init__(self):
         self.propres: dict[str, dict] = {}
         self.rejets: dict[str, dict] = {}
-        self.checks: list[tuple[datetime, str, bool]] = []
+        self.checks: list[tuple[datetime, str, bool, bool]] = []
 
     def known_ids(self):
         return set(self.propres) | set(self.rejets)
@@ -69,14 +69,15 @@ class MemoryCleanStore:
     def clean_since(self, since):
         return [r for r in self.propres.values() if r["traite_le"] >= since]
 
-    def record_checks(self, checks, at):
-        self.checks += [(at, check.id, check.ok) for check in checks]
+    def record_checks(self, checks, at, alerted):
+        self.checks += [(at, check.id, check.ok, check.id in alerted) for check in checks]
 
-    def failing_checks(self):
-        last: dict[str, bool] = {}
-        for _, check_id, ok in sorted(self.checks):
-            last[check_id] = ok
-        return {check_id for check_id, ok in last.items() if not ok}
+    def alerted_checks(self):
+        """Contrôles rouges au dernier passage et dont l'alerte est bien partie."""
+        last: dict[str, tuple[bool, bool]] = {}
+        for _, check_id, ok, sent in self.checks:
+            last[check_id] = (ok, sent)
+        return {check_id for check_id, (ok, sent) in last.items() if not ok and sent}
 
 
 def raw_path(item: dict) -> str:
@@ -203,8 +204,8 @@ def process(
     report = build_report(store.day_rows(day), day, summary)
     path = write_report(reports_dir, day, report)
     checks = run_checks(store, sources, now)
-    alert_on_new_failures(store, checks, webhook_url)
-    store.record_checks(checks, now)
+    alerted = alert_on_new_failures(store, checks, webhook_url)
+    store.record_checks(checks, now, alerted)
     return summary | {
         "rapport": str(path),
         "rapport_markdown": report,

@@ -69,10 +69,26 @@ def test_checks_detect_silent_source_and_alert_once(tmp_path):
     transport = httpx.MockTransport(
         lambda r: sent.append(json.loads(r.content)) or httpx.Response(204)
     )
-    assert alert_on_new_failures(store, checks, "https://hooks.example/x", transport)
-    store.record_checks(checks, NOW)
-    assert alert_on_new_failures(store, checks, "https://hooks.example/x", transport) == []
-    assert len(sent) == 1 and "Ouest-France" in sent[0]["content"]
+    alerted = alert_on_new_failures(store, checks, "https://hooks.example/x", transport)
+    assert alerted == {"C04_aucune_source_muette"}
+    store.record_checks(checks, NOW, alerted)
+    alerted = alert_on_new_failures(store, checks, "https://hooks.example/x", transport)
+    store.record_checks(checks, NOW, alerted)
+    assert len(sent) == 1 and "Ouest-France" in sent[0]["content"]  # pas de répétition
+
+
+def test_failed_alert_is_retried_next_pass(tmp_path):
+    store = MemoryCleanStore()
+    clean_pass(bruts(tmp_path), store, NOW)
+    checks = run_checks(store, ["Ouest-France"], NOW)
+    # 1er passage : pas de .env ; 2e : Discord en panne ; 3e : l'alerte part enfin.
+    store.record_checks(checks, NOW, alert_on_new_failures(store, checks, None))
+    down = httpx.MockTransport(lambda r: httpx.Response(503))
+    store.record_checks(checks, NOW, alert_on_new_failures(store, checks, "https://h/x", down))
+    sent = []
+    ok = httpx.MockTransport(lambda r: sent.append(r) or httpx.Response(204))
+    alerted = alert_on_new_failures(store, checks, "https://h/x", ok)
+    assert alerted == {"C04_aucune_source_muette"} and len(sent) == 1
 
 
 def test_too_greedy_rule_is_detected(tmp_path):

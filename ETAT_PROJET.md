@@ -9,7 +9,7 @@ Dernière mise à jour : 22 octobre 2026 (fin du TD 3).
 | 1 | Cadrage | Terminé | `docs/cadrage.md`, `docs/Schema-architecture-pipeline.png`, `sources.csv` |
 | 2 | Socle | Terminé, sauf revue croisée | PR #1 fusionnée, CI verte sur `main`, `docs/validation-td2.md` |
 | 3 | Collecte | Terminé | PR #3 et PR de finitions, collecte Prefect toutes les 30 min, `docs/donnees.md`, `docs/exploitation.md` |
-| 4 | Qualité | À faire | — |
+| 4 | Qualité | Terminé, en revue (PR #7) | `docs/qualite.md`, migrations 002-003, alerte Discord déclenchée le 22/10 |
 | 5 | MLOps 1 | À faire | — |
 | 6 | MLOps 2 | À faire | — |
 | 7 | Livraison | À faire | — |
@@ -48,6 +48,12 @@ Jinja2, Nginx, OpenTofu selon l'infrastructure fournie.
 | 2026-10-22 | Erreurs passagères décidées en fin de passage : comptées si au moins une source a obtenu une réponse HTTP (la source est en panne), ignorées sinon (la machine est hors ligne) ; proposé par la revue de l'équipe | `src/gazette/collect.py`, `docs/exploitation.md` |
 | 2026-10-22 | Pas de `retries` sur le flow : le run suivant (30 min) sert de reprise | `src/gazette/flows.py` |
 | 2026-10-22 | Dépendances psycopg et Prefect ajoutées dans la PR de la collecte (exception à la règle « PR dédiée » : nécessaires à la fonctionnalité) | PR #3 |
+| 2026-10-22 | Nettoyage dans le même flow que la collecte (tâche `nettoyage-et-controles`), juste après elle | `src/gazette/flows.py` |
+| 2026-10-22 | Règles lisibles (regex, seuils) dans `rules.py`, pas de modèle ; un identifiant par règle (R01 à R12) | `docs/qualite.md` |
+| 2026-10-22 | Doublon approché : Jaccard ≥ 0,8 sur les mots du titre normalisé, fenêtre de 48 h ; on garde le plus ancien | `src/gazette/rules.py` |
+| 2026-10-22 | Contrôles de données en assertions maison plutôt que Pandera (prévu au cadrage) : 4 faits simples, pas de dépendance de plus | `docs/qualite.md` |
+| 2026-10-22 | Alertes vers un webhook Discord (`ALERT_WEBHOOK_URL` dans `.env`, jamais commité) ; une alerte par passage au rouge, renvoyée tant qu'elle n'est pas partie | `src/gazette/quality.py` |
+| 2026-10-22 | Rétention : 90 jours pour le brut, `articles_propres` et `rejets` ; 1 an pour contrôles et rapports | `docs/donnees.md` |
 
 ## Responsabilités
 
@@ -58,6 +64,9 @@ Jinja2, Nginx, OpenTofu selon l'infrastructure fournie.
 | _à compléter_ | |
 
 ## Problèmes ouverts
+
+- **Alertes** : la machine qui fait tourner la collecte doit avoir un `.env` avec
+  `ALERT_WEBHOOK_URL`, sinon chaque passage rouge logue `alerte_non_envoyee` (et réessaie).
 
 - **Exécution de la collecte** : elle tourne sur le poste de Riad, qui doit rester
   allumé ; décider qui la fait tourner jusqu'à l'infrastructure de production.

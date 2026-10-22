@@ -55,6 +55,34 @@ l'édition pourra citer toutes les sources d'une même dépêche.
 `R11_doublon_exact` 1. Le gros des rejets vient de La Dépêche et Midi Libre, dont les flux
 de 100 items remontent au-delà de 24 h.
 
+## Reprise : combien par source, lesquelles ont dormi ? (22/10/2026, ≈ 11 h 40)
+
+Collecte lancée le 22/10 au matin, environ 10 passages. **Aucune source n'a dormi** :
+les 8 sont `actif = true` avec `echecs_consecutifs = 0` dans la table `sources`.
+
+| Source | Items bruts | Gardés | Rejetés | Taux de rejet |
+|---|---|---|---|---|
+| Dernières Nouvelles d'Alsace | 26 | 24 | 2 | 8 % |
+| La Croix | 57 | 51 | 6 | 11 % |
+| La Dépêche du Midi | 114 | 96 | 18 | 16 % |
+| Le Figaro | 42 | 37 | 5 | 12 % |
+| Le Monde | 27 | 25 | 2 | 7 % |
+| Libération | 63 | 61 | 2 | 3 % |
+| Midi Libre | 107 | 65 | 42 | 39 % |
+| Ouest-France | 40 | 39 | 1 | 2 % |
+| **Total** | **476** | **398** | **78** | **16 %** |
+
+Midi Libre a le plus fort taux de rejet : son flux de 100 items remonte jusqu'au 20/10,
+donc beaucoup d'articles de plus de 24 h (`R09_perime`). C'est la source à surveiller
+pour le contrôle `C03` (seuil 80 %).
+
+Pour refaire ces chiffres :
+
+```sh
+docker compose exec postgres psql -U gazette -d gazette -c "SELECT nom, actif, echecs_consecutifs FROM sources ORDER BY nom;"
+docker compose exec postgres psql -U gazette -d gazette -c "SELECT source, count(*) FILTER (WHERE r) AS rejetes, count(*) AS total FROM (SELECT source, false AS r FROM articles_propres UNION ALL SELECT source, true FROM rejets) t GROUP BY source ORDER BY source;"
+```
+
 ## Contrôles de données (après chaque passage)
 
 Code : `src/gazette/quality.py`. Ce sont des faits vérifiés sur les vraies données, pas des
@@ -71,7 +99,9 @@ dépendance de plus ; Pandera, prévu au cadrage, se justifierait avec un schém
 Chaque passage : résultats dans la table `controles_qualite`, logs JSON, et artefacts
 Prefect (rapport, contrôles, métriques). Quand un contrôle **passe** au rouge, une alerte
 part vers le webhook `ALERT_WEBHOOK_URL` (Discord ou Slack) ; pas de nouvelle alerte tant
-qu'il reste rouge. Le run Prefect passe aussi en échec.
+qu'il reste rouge. Si l'envoi échoue (pas de `.env`, Discord injoignable), le contrôle
+n'est pas marqué « signalé » et l'alerte est retentée au passage suivant (migration 003,
+colonne `alerte_envoyee`). Le run Prefect passe aussi en échec.
 
 ## Alerte déclenchée pour de vrai (22/10/2026)
 

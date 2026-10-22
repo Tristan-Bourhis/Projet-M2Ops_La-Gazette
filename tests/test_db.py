@@ -47,6 +47,7 @@ def test_migrations_are_applied_once(conn):
     assert migrate(conn, MIGRATIONS) == [
         "001_creer_table_sources.sql",
         "002_creer_tables_nettoyage.sql",
+        "003_alerte_envoyee.sql",
     ]
     assert migrate(conn, MIGRATIONS) == []
 
@@ -134,5 +135,5 @@ def test_clean_store_on_postgres(conn, tmp_path):
     result = process(store, tmp_path / "articles_bruts", tmp_path / "r", ["Le Monde"], NOW)
     assert (result["gardes"], result["rejetes"]) == (1, 1)
     assert conn.execute("SELECT regle FROM rejets").fetchone()["regle"] == "R06_titre_vide"
-    assert store.failing_checks() == set()
+    assert store.alerted_checks() == set()
     assert process(store, tmp_path / "articles_bruts", tmp_path / "r", [], NOW)["entres"] == 0

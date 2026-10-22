@@ -153,17 +153,17 @@ class PostgresCleanStore:
         )
         return list(rows)
 
-    def record_checks(self, checks, at):
+    def record_checks(self, checks, at, alerted):
         with self.conn.cursor() as cursor:
             cursor.executemany(
-                "INSERT INTO controles_qualite (execute_le, controle, ok, valeur, seuil, detail)"
-                " VALUES (%s, %s, %s, %s, %s, %s)",
-                [(at, c.id, c.ok, c.valeur, c.seuil, c.detail) for c in checks],
+                "INSERT INTO controles_qualite (execute_le, controle, ok, valeur, seuil, detail,"
+                " alerte_envoyee) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                [(at, c.id, c.ok, c.valeur, c.seuil, c.detail, c.id in alerted) for c in checks],
             )
 
-    def failing_checks(self):
+    def alerted_checks(self):
         rows = self.conn.execute(
-            "SELECT DISTINCT ON (controle) controle, ok FROM controles_qualite"
+            "SELECT DISTINCT ON (controle) controle, ok, alerte_envoyee FROM controles_qualite"
             " ORDER BY controle, execute_le DESC, id DESC"
         )
-        return {row["controle"] for row in rows if not row["ok"]}
+        return {r["controle"] for r in rows if not r["ok"] and r["alerte_envoyee"]}
