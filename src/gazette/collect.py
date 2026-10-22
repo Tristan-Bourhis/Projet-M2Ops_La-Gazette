@@ -214,7 +214,15 @@ def collect_source(
         repo.record_success(source.nom, now, etag, last_modified)
         record["echecs_consecutifs"] = 0
         level = logging.INFO
-    except (TransientError, PermanentError, FeedError) as error:
+    except TransientError as error:
+        # Erreur passagère qui persiste après le backoff (réseau, 5xx, timeout) :
+        # pas comptée pour la mise en sommeil (consigne : 404 ou flux cassé seulement).
+        # Sinon une coupure réseau de la machine endormirait toutes les sources.
+        record["statut"] = "indisponible"
+        record["erreur"] = str(error)
+        record["echecs_consecutifs"] = source.echecs_consecutifs
+        level = logging.WARNING
+    except (PermanentError, FeedError) as error:
         state = repo.record_failure(source.nom)
         record["statut"] = "echec" if state.actif else "sommeil"
         record["erreur"] = str(error)
@@ -251,6 +259,7 @@ def collect_all(
         "sources": len(sources),
         "ok": sum(r["statut"] in {"ok", "inchange"} for r in records),
         "echecs": sum(r["statut"] == "echec" for r in records),
+        "indisponibles": sum(r["statut"] == "indisponible" for r in records),
         "mises_en_sommeil": sum(r["statut"] == "sommeil" for r in records),
         "recus": sum(r["recus"] for r in records),
         "ecrits": sum(r["ecrits"] for r in records),

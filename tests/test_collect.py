@@ -57,6 +57,7 @@ def test_second_pass_is_conditional_and_polite(tmp_path):
         "sources": 1,
         "ok": 1,
         "echecs": 0,
+        "indisponibles": 0,
         "mises_en_sommeil": 0,
         "recus": 0,
         "ecrits": 0,
@@ -88,18 +89,45 @@ def down_server():
     server.server_close()
 
 
-def test_source_down_backoff_then_sleep(tmp_path, down_server):
+def test_source_down_503_backoff_without_sleep(tmp_path, down_server):
+    """Consigne : un 503 se réessaie (backoff) ; il ne met pas la source en sommeil."""
     url, hits = down_server
     repo = MemorySources([Source("En panne", "PQR", url)])
     waits = []
-    for expected_failures in (1, 2, 3):
-        run(repo, tmp_path, sleep=waits.append)
-        assert repo.sources["En panne"].echecs_consecutifs == expected_failures
+    for _ in range(3):
+        summary = run(repo, tmp_path, sleep=waits.append)
+        assert summary["indisponibles"] == 1
     assert waits == [1, 2, 4] * 3
     assert len(hits) == 4 * 3
-    assert repo.sources["En panne"].actif is False
-    after = run(repo, tmp_path)
-    assert (after["sources"], after["en_sommeil"]) == (0, ["En panne"])
+    assert repo.sources["En panne"].actif is True
+    assert repo.sources["En panne"].echecs_consecutifs == 0
+
+
+def test_network_outage_does_not_put_sources_to_sleep(tmp_path):
+    def offline(request):
+        raise httpx.ConnectError("Réseau indisponible", request=request)
+
+    repo = MemorySources(
+        [
+            Source("Ouest-France", "PQR", "https://www.ouest-france.fr/rss/une"),
+            Source("Le Monde", "PQN", "https://www.lemonde.fr/rss/une.xml"),
+        ]
+    )
+    for _ in range(5):
+        summary = run(repo, tmp_path, httpx.MockTransport(offline))
+    assert (summary["ok"], summary["indisponibles"], summary["en_sommeil"]) == (0, 2, [])
+    assert all(source.actif for source in repo.sources.values())
+
+
+def test_three_permanent_errors_put_source_to_sleep(tmp_path):
+    repo = ouest_france()
+    transport = httpx.MockTransport(lambda request: httpx.Response(404))
+    for expected_failures in (1, 2, 3):
+        run(repo, tmp_path, transport)
+        assert repo.sources["Ouest-France"].echecs_consecutifs == expected_failures
+    assert repo.sources["Ouest-France"].actif is False
+    after = run(repo, tmp_path, transport)
+    assert (after["sources"], after["en_sommeil"]) == (0, ["Ouest-France"])
 
 
 def test_permanent_error_is_not_retried(tmp_path):
@@ -129,7 +157,7 @@ def test_one_broken_source_does_not_block_the_others(tmp_path):
         ]
     )
     summary = run(repo, tmp_path, httpx.MockTransport(handler))
-    assert (summary["ok"], summary["echecs"], summary["ecrits"]) == (1, 1, 2)
+    assert (summary["ok"], summary["indisponibles"], summary["ecrits"]) == (1, 1, 2)
 
 
 def test_success_resets_failures(tmp_path):
