@@ -6,7 +6,13 @@ from pathlib import Path
 import httpx
 import pytest
 
-from gazette.collect import USER_AGENT, MemorySources, Source, collect_all
+from gazette.collect import (
+    PAUSE_BETWEEN_SOURCES,
+    USER_AGENT,
+    MemorySources,
+    Source,
+    collect_all,
+)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "ouest-france.xml"
 NOW = datetime(2026, 10, 22, 8, tzinfo=UTC)
@@ -67,16 +73,23 @@ def test_second_pass_is_conditional_and_polite(tmp_path):
 
 
 @pytest.fixture
-def down_server():
-    """Vrai serveur HTTP local qui répond toujours 503."""
+def local_server():
+    """Vrai serveur HTTP local : /ok sert la fixture RSS, /panne répond toujours 503."""
     hits = []
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             hits.append(self.path)
-            self.send_response(503)
-            self.send_header("Content-Length", "0")
+            if self.path == "/ok":
+                body = FIXTURE.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/rss+xml")
+            else:
+                body = b""
+                self.send_response(503)
+            self.send_header("Content-Length", str(len(body)))
             self.end_headers()
+            self.wfile.write(body)
 
         def log_message(self, *args):
             return None
@@ -84,23 +97,45 @@ def down_server():
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    yield f"http://127.0.0.1:{server.server_port}/rss", hits
+    yield f"http://127.0.0.1:{server.server_port}", hits
     server.shutdown()
     server.server_close()
 
 
-def test_source_down_503_backoff_without_sleep(tmp_path, down_server):
-    """Consigne : un 503 se réessaie (backoff) ; il ne met pas la source en sommeil."""
-    url, hits = down_server
-    repo = MemorySources([Source("En panne", "PQR", url)])
+def test_source_down_503_backoff_then_sleep(tmp_path, local_server):
+    """Source en panne (vrai serveur local en 503) pendant que les autres répondent :
+    backoff 1/2/4 s, un échec compté par passage, sommeil au 3e."""
+    base, hits = local_server
+    repo = MemorySources(
+        [Source("En panne", "PQR", f"{base}/panne"), Source("OK", "PQN", f"{base}/ok")]
+    )
     waits = []
-    for _ in range(3):
-        summary = run(repo, tmp_path, sleep=waits.append)
-        assert summary["indisponibles"] == 1
-    assert waits == [1, 2, 4] * 3
-    assert len(hits) == 4 * 3
-    assert repo.sources["En panne"].actif is True
-    assert repo.sources["En panne"].echecs_consecutifs == 0
+    for expected_failures in (1, 2, 3):
+        run(repo, tmp_path, sleep=waits.append)
+        assert repo.sources["En panne"].echecs_consecutifs == expected_failures
+    assert waits == [1, 2, 4, PAUSE_BETWEEN_SOURCES] * 3
+    assert hits.count("/panne") == 4 * 3
+    assert repo.sources["En panne"].actif is False
+    after = run(repo, tmp_path)
+    assert (after["sources"], after["en_sommeil"]) == (1, ["En panne"])
+
+
+def test_permanent_error_proves_network_works(tmp_path):
+    """Un 404 est une réponse : le réseau marche, le 503 de l'autre source est compté."""
+
+    def handler(request):
+        if request.url.host == "absent.example.org":
+            return httpx.Response(404)
+        return httpx.Response(503)
+
+    repo = MemorySources(
+        [
+            Source("Absente", "PQN", "https://absent.example.org/rss"),
+            Source("En panne", "PQR", "https://panne.example.org/rss"),
+        ]
+    )
+    summary = run(repo, tmp_path, httpx.MockTransport(handler))
+    assert (summary["echecs"], summary["indisponibles"]) == (2, 0)
 
 
 def test_network_outage_does_not_put_sources_to_sleep(tmp_path):
@@ -157,7 +192,7 @@ def test_one_broken_source_does_not_block_the_others(tmp_path):
         ]
     )
     summary = run(repo, tmp_path, httpx.MockTransport(handler))
-    assert (summary["ok"], summary["indisponibles"], summary["ecrits"]) == (1, 1, 2)
+    assert (summary["ok"], summary["echecs"], summary["ecrits"]) == (1, 1, 2)
 
 
 def test_success_resets_failures(tmp_path):
