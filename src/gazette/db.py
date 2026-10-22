@@ -63,6 +63,13 @@ class PostgresSources:
         ).fetchone()
         return Source(**row)
 
+    def sleeping_sources(self):
+        rows = self.conn.execute(
+            "SELECT nom FROM sources WHERE NOT actif AND echecs_consecutifs >= %s ORDER BY nom",
+            (SLEEP_AFTER_FAILURES,),
+        )
+        return [row["nom"] for row in rows]
+
 
 def sync_sources(conn: psycopg.Connection, csv_path: Path) -> None:
     """sources.csv fait foi pour la liste : ajoute les nouvelles, garde l'état des autres.

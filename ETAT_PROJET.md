@@ -1,6 +1,6 @@
 # État du projet
 
-Dernière mise à jour : 20 octobre 2026 (fin du TD 2).
+Dernière mise à jour : 22 octobre 2026 (fin du TD 3).
 
 ## Avancement des TD
 
@@ -8,7 +8,7 @@ Dernière mise à jour : 20 octobre 2026 (fin du TD 2).
 |---|---|---|---|
 | 1 | Cadrage | Terminé | `docs/cadrage.md`, `docs/Schema-architecture-pipeline.png`, `sources.csv` |
 | 2 | Socle | Terminé, sauf revue croisée | PR #1 fusionnée, CI verte sur `main`, `docs/validation-td2.md` |
-| 3 | Collecte | À faire | — |
+| 3 | Collecte | Terminé | PR #3 et PR de finitions, collecte Prefect toutes les 30 min, `docs/donnees.md`, `docs/exploitation.md` |
 | 4 | Qualité | À faire | — |
 | 5 | MLOps 1 | À faire | — |
 | 6 | MLOps 2 | À faire | — |
@@ -19,15 +19,18 @@ Dernière mise à jour : 20 octobre 2026 (fin du TD 2).
 
 ## Stack
 
-En place (TD 2) :
+En place :
 
-- Python 3.12, httpx, feedparser, defusedxml ; dépendances figées dans les `.lock`.
-- Ruff et pytest.
-- Docker multi-étapes (utilisateur non root 10001) et Docker Compose (app + PostgreSQL).
+- Python 3.12, httpx, feedparser, defusedxml, psycopg ; dépendances figées dans les `.lock`.
+- Ruff et pytest ; tests PostgreSQL exécutés en CI sur une base jetable.
+- Docker multi-étapes (utilisateur non root 10001) et Docker Compose
+  (app, collecteur, prefect-server, PostgreSQL).
+- Prefect 3.9 : flow `collecte` toutes les 30 min, UI sur `localhost:4200`.
+- Stockage brut : un fichier JSON par article dans `articles_bruts/` ;
+  table `sources` dans PostgreSQL (migrations versionnées).
 - GitHub Actions : lint → tests → build → push GHCR, tag `YYYYMMDDHHMMSS-sha`.
 
-Prévue dans le cadrage, non validée en pratique : Prefect (orchestration et
-supervision), JSON brut + PostgreSQL propre, Pandas et Pandera, BERTopic,
+Prévue dans le cadrage, non validée en pratique : Pandas et Pandera, BERTopic,
 Jinja2, Nginx, OpenTofu selon l'infrastructure fournie.
 
 ## Décisions
@@ -38,22 +41,36 @@ Jinja2, Nginx, OpenTofu selon l'infrastructure fournie.
 | 2026-10-20 | Première source : Ouest-France ; fixture aux contenus fictifs | `tests/fixtures/README.md` |
 | 2026-10-20 | 8 sources (4 PQR, 4 PQN) retenues | `sources.csv` |
 | 2026-10-20 | `main` protégée : PR, 1 approbation, CI verte obligatoire | `CONTRIBUTING.md`, `docs/validation-td2.md` |
+| 2026-10-22 | Orchestrateur : Prefect (consigne : Prefect ou Airflow ; Airflow jugé trop lourd) | `src/gazette/flows.py` |
+| 2026-10-22 | Collecte toutes les 30 min : le flux Ouest-France ne couvre qu'≈ 40 min | `docs/donnees.md` |
+| 2026-10-22 | Brut = un JSON par article, clé (source, lien) ; aucun filtre avant le TD 4 | `docs/donnees.md` |
+| 2026-10-22 | Sommeil après 3 échecs **permanents** consécutifs (404, redirection, flux cassé) ; run Prefect en échec tant qu'une source dort | `src/gazette/collect.py`, `flows.py` |
+| 2026-10-22 | Erreur passagère (429, 5xx, timeout, réseau) après backoff = `indisponible`, non comptée pour le sommeil : une coupure réseau de la machine n'endort plus les sources (revue de l'équipe) | `src/gazette/collect.py`, `docs/exploitation.md` |
+| 2026-10-22 | Pas de `retries` sur le flow : le run suivant (30 min) sert de reprise | `src/gazette/flows.py` |
+| 2026-10-22 | Dépendances psycopg et Prefect ajoutées dans la PR de la collecte (exception à la règle « PR dédiée » : nécessaires à la fonctionnalité) | PR #3 |
 
 ## Responsabilités
 
-À compléter par l'équipe (membre → composantes).
+| Membre | Composantes |
+|---|---|
+| Riad | Collecte (TD 3) : collecteur, stockage brut, table `sources`, orchestration Prefect |
+| _à compléter_ | |
 
 ## Problèmes ouverts
 
-- Fréquences de `sources.csv` mesurées une seule fois (20 octobre 2026) ;
-  certains flux ne couvrent que quelques heures (Ouest-France : ≈ 40 min),
-  à prendre en compte pour la fréquence de collecte au TD 3.
+- **Exécution de la collecte** : elle tourne sur le poste de Riad, qui doit rester
+  allumé ; décider qui la fait tourner jusqu'à l'infrastructure de production.
+- Seules La Croix et Libération envoient `ETag` / `Last-Modified` : les 6 autres
+  flux sont retéléchargés en entier à chaque passage.
+- `rubrique` souvent vide (Le Monde n'envoie pas de `<category>`).
+- Compteurs cumulés (articles par source et par jour) : à exposer au TD 8 (monitoring).
 - Fixture : contenus fictifs, donc les variantes réelles des flux ne sont pas couvertes.
 - Revue croisée avec une autre équipe : non réalisée.
 - Chaque membre doit avoir fait un commit passé par la CI via une PR.
 
 ## Prochaines étapes
 
-1. Revue croisée et retour consigné dans `docs/validation-td2.md`.
-2. Un commit par membre via une PR.
-3. Pour le TD 3 : étudier le format des flux et leurs en-têtes HTTP (`curl -I`).
+1. TD 4 : relever 10 items à exclure dans `docs/qualite.md`, puis nettoyage et contrôle qualité.
+2. Une source `indisponible` en continu ne s'endort pas : surveiller l'âge de `derniere_reussite` (alerte au TD 8). Procédures : `docs/exploitation.md`.
+3. Revue croisée et retour consigné dans `docs/validation-td2.md`.
+4. Un commit par membre via une PR.

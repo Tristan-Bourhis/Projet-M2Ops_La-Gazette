@@ -2,7 +2,8 @@
 
 Pipeline pédagogique de veille de presse régionale et nationale. Le TD 2 pose
 le socle : lecture d'un flux RSS/Atom, export JSON, PostgreSQL de développement,
-tests et construction/publication d'une image. Le cadrage est dans
+tests et construction/publication d'une image. Le TD 3 ajoute la
+collecte planifiée des 8 sources (voir plus bas). Le cadrage est dans
 [docs/cadrage.md](docs/cadrage.md).
 
 ## Démarrer en deux commandes
@@ -35,10 +36,41 @@ mkdir -p output
 docker compose run --rm --no-deps app cat /data/items.json > output/items.json
 ```
 
-PostgreSQL est provisionné pour les prochains TD ; le TD 2 écrit uniquement
-du JSON et n'utilise pas encore la base. Aucun port PostgreSQL n'est exposé.
+PostgreSQL contient la table `sources` (état de chaque flux, TD 3) ; les articles
+bruts sont des fichiers JSON (voir plus bas). Aucun port PostgreSQL n'est exposé.
 Les identifiants présents dans Compose sont réservés au développement local.
 Les volumes persistent ; `docker compose down --volumes` les supprime.
+
+## Collecte planifiée (TD 3)
+
+Toutes les 30 minutes, Prefect collecte les sources actives de `sources.csv` :
+un fichier JSON par article dans `/data/articles_bruts/<source>/` (volume
+`gazette-output`), sans doublon, et l'état de chaque source dans la table
+PostgreSQL `sources`. Champs et règles : [docs/donnees.md](docs/donnees.md).
+
+```sh
+docker compose up -d --build prefect-server collecteur   # collecte toutes les 30 min
+docker compose logs -f collecteur                         # une ligne JSON par source
+docker compose run --rm app python -m gazette.collect     # une collecte à la main
+```
+
+Interface Prefect : <http://localhost:4200> (planning, runs, logs). Un run est en
+échec si aucune source ne répond, ou tant qu'une source est en sommeil (3 échecs
+consécutifs) ; pour la réveiller, corriger son URL dans `sources.csv`.
+
+```sh
+docker compose exec postgres psql -P pager=off -U gazette -d gazette \
+  -c "SELECT nom, actif, echecs_consecutifs, derniere_reussite FROM sources ORDER BY nom;"
+```
+
+Les tests PostgreSQL (`tests/test_db.py`) tournent en CI ; en local, sur une base dédiée :
+
+```sh
+docker compose exec postgres createdb -U gazette gazette_test   # une seule fois
+docker run --rm --network projet-m2ops_la-gazette_default \
+  -e TEST_DATABASE_URL=postgresql://gazette:gazette-local-only@postgres:5432/gazette_test \
+  projet-m2ops_la-gazette-tests python -m pytest -p no:cacheprovider tests/test_db.py
+```
 
 ## Première source et conditions d'utilisation
 
@@ -65,7 +97,8 @@ Une erreur ou un flux sans item exploitable conserve le précédent JSON.
 ## Développement et CI
 
 ```text
-src/gazette/          CLI, récupération HTTP, parseur, export JSON
+src/gazette/          CLI, collecte (bronze, extraction, collecteur, base, flow Prefect)
+migrations/          migrations SQL versionnées (table sources)
 tests/fixtures/      exemple RSS normalisé et provenance
 tests/              tests du parseur, du réseau simulé et de la CLI
 infra/              documentation de l'environnement Compose
