@@ -5,6 +5,7 @@ from pathlib import Path
 
 import psycopg
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 from gazette.collect import SLEEP_AFTER_FAILURES, Source
 
@@ -170,7 +171,7 @@ class PostgresCleanStore:
 
 
 class PostgresThemeStore:
-    """Tables du TD 5 (migration 004) : fenêtre d'articles et cache des embeddings."""
+    """Tables du TD 5 (migration 004) : fenêtre, cache des embeddings, runs et thèmes."""
 
     def __init__(self, conn: psycopg.Connection):
         self.conn = conn
@@ -196,4 +197,43 @@ class PostgresThemeStore:
                 "INSERT INTO embeddings (article_id, modele, vecteur, calcule_le)"
                 " VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
                 [(article_id, modele, vector, at) for article_id, vector in vectors.items()],
+            )
+
+    def start_run(self, run):
+        row = self.conn.execute(
+            "INSERT INTO runs (lance_le, fenetre_debut, fenetre_fin, nb_articles, hash_entree,"
+            " modele, parametres) VALUES (%(lance_le)s, %(fenetre_debut)s, %(fenetre_fin)s,"
+            " %(nb_articles)s, %(hash_entree)s, %(modele)s, %(parametres)s) RETURNING id",
+            run | {"parametres": Jsonb(run["parametres"])},
+        ).fetchone()
+        return row["id"]
+
+    def finish_run(self, run_id, themes, affectations, metriques, at):
+        """Thèmes, affectations et fin du run en une transaction : tout ou rien."""
+        with self.conn.transaction():
+            theme_ids = [
+                self.conn.execute(
+                    "INSERT INTO themes (run_id, nom, mots_cles, taille)"
+                    " VALUES (%s, %s, %s, %s) RETURNING id",
+                    (run_id, t["nom"], t["mots_cles"], t["taille"]),
+                ).fetchone()["id"]
+                for t in themes
+            ]
+            with self.conn.cursor() as cursor:
+                cursor.executemany(
+                    "INSERT INTO articles_themes (run_id, article_id, theme_id, probabilite)"
+                    " VALUES (%s, %s, %s, %s)",
+                    [
+                        (
+                            run_id,
+                            a["article_id"],
+                            None if a["theme"] is None else theme_ids[a["theme"]],
+                            a["probabilite"],
+                        )
+                        for a in affectations
+                    ],
+                )
+            self.conn.execute(
+                "UPDATE runs SET termine_le = %s, metriques = %s WHERE id = %s",
+                (at, Jsonb(metriques), run_id),
             )

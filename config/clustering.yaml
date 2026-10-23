@@ -1,0 +1,35 @@
+# Paramètres du regroupement (TD 5). Chaque run enregistre ce contenu dans runs.parametres :
+# modifier une valeur ici, c'est changer les runs suivants, et la trace le montre.
+
+modele:
+  nom: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+  revision: e8f8c211226b894fcb81acc59f3b34ba3efd5f42   # version figée du modèle
+
+graine: 42   # UMAP est aléatoire : même graine + mêmes articles = mêmes thèmes
+
+umap:                  # réduction 384 -> 5 dimensions, voisinages calculés en cosinus
+  n_neighbors: 15
+  n_components: 5
+  min_dist: 0.0
+  metric: cosine
+
+hdbscan:               # regroupement par densité dans l'espace réduit
+  min_cluster_size: 5  # taille minimale d'un thème
+  min_samples: 5       # exigence de densité : plus haut = plus d'articles en bruit
+  metric: euclidean
+
+mots_cles:
+  nombre: 5
+  motif: '(?u)\b[^\W\d_]{3,}\b'   # un mot = 3 lettres ou plus : ni chiffres (« 17 », « 000 »), ni « l », « d »
+  # Mots fréquents mais non discriminants. Mois et jours ajoutés après la comparaison
+  # du 23/10 (« octobre », « samedi » sortaient comme mots-clés).
+  mots_vides: [
+    au, aux, avec, ce, ces, cet, cette, dans, de, des, du, elle, elles, en, et, eux, il, ils,
+    je, la, le, les, leur, leurs, lui, ma, mais, me, même, mes, moi, mon, ne, nos, notre, nous,
+    on, ou, où, par, pas, pour, qu, que, qui, sa, se, ses, son, sur, ta, te, tes, toi, ton, tu,
+    un, une, vos, votre, vous, est, sont, été, être, avoir, ont, fait, plus, après, avant,
+    aussi, comme, dont, entre, sans, sous, tout, tous, toute, toutes, très, deux, trois, selon,
+    ça, cela, si, donc, ni, car, alors, encore, déjà, bien, faire, peut, ans, an,
+    janvier, février, mars, avril, mai, juin, juillet, août, septembre, octobre, novembre,
+    décembre, lundi, mardi, mercredi, jeudi, vendredi, samedi, dimanche
+  ]

@@ -210,3 +210,44 @@ def test_embeddings_cache_on_postgres(conn):
     assert embed_articles(store, dix, "m@1", encoder, NOW)["a0"] == [0.5, 0.25]
     assert embed_articles(store, dix, "m@1", encoder, NOW)["a0"] == [0.5, 0.25]
     assert len(calls) == 10  # le second passage lit le cache en base
+
+
+def test_run_themes_on_postgres(conn):
+    from gazette.db import PostgresThemeStore
+    from gazette.themes import run_themes
+
+    migrate(conn, MIGRATIONS)
+    for i in range(16):
+        conn.execute(
+            "INSERT INTO articles_propres (id, source, lien, titre, extrait, publie_le,"
+            " cle_titre, brut, traite_le) VALUES (%s, 'Le Monde', %s, %s, 'Extrait', %s,"
+            " 't', 'b', %s)",
+            (f"a{i}", f"https://e.fr/{i}", f"Titre {i}", NOW - timedelta(minutes=i + 1), NOW),
+        )
+    labels = [0] * 6 + [1] * 6 + [-1] * 4
+    config = {
+        "modele": {"nom": "m", "revision": "1"},
+        "graine": 42,
+        "umap": {"n_neighbors": 15},
+    }
+
+    def encoder(textes):
+        return [[1.0, 0.0] if i < 6 else [0.0, 1.0] for i in range(len(textes))]
+
+    def cluster(textes, vecteurs, config):
+        return labels, [0.8] * 16, {0: ["a", "b"], 1: ["c", "d"]}
+
+    result = run_themes(PostgresThemeStore(conn), encoder, config, NOW, cluster=cluster)
+
+    # « Quel run a produit les thèmes en base ? » : une requête.
+    rows = conn.execute(
+        "SELECT t.taille, t.mots_cles, r.parametres, r.metriques FROM themes t"
+        " JOIN runs r ON r.id = t.run_id WHERE r.termine_le IS NOT NULL ORDER BY t.id"
+    ).fetchall()
+    assert [(r["taille"], r["mots_cles"]) for r in rows] == [(6, ["a", "b"]), (6, ["c", "d"])]
+    assert rows[0]["parametres"]["graine"] == 42 and rows[0]["metriques"]["part_bruit"] == 0.25
+    noise = conn.execute(
+        "SELECT count(*) AS n FROM articles_themes WHERE run_id = %s AND theme_id IS NULL",
+        (result["run_id"],),
+    ).fetchone()["n"]
+    assert noise == 4
