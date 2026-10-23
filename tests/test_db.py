@@ -28,13 +28,13 @@ def conn(tmp_path):
         pytest.fail("TEST_DATABASE_URL doit viser une base dont le nom finit par _test.")
     with connect(URL) as connection:
         connection.execute(
-            "DROP TABLE IF EXISTS rejets, articles_propres, controles_qualite, sources,"
-            " schema_migrations"
+            "DROP TABLE IF EXISTS articles_themes, themes, runs, embeddings, rejets,"
+            " articles_propres, controles_qualite, sources, schema_migrations"
         )
         yield connection
         connection.execute(
-            "DROP TABLE IF EXISTS rejets, articles_propres, controles_qualite, sources,"
-            " schema_migrations"
+            "DROP TABLE IF EXISTS articles_themes, themes, runs, embeddings, rejets,"
+            " articles_propres, controles_qualite, sources, schema_migrations"
         )
 
 
@@ -48,6 +48,7 @@ def test_migrations_are_applied_once(conn):
         "001_creer_table_sources.sql",
         "002_creer_tables_nettoyage.sql",
         "003_alerte_envoyee.sql",
+        "004_creer_tables_themes.sql",
     ]
     assert migrate(conn, MIGRATIONS) == []
 
@@ -137,3 +138,43 @@ def test_clean_store_on_postgres(conn, tmp_path):
     assert conn.execute("SELECT regle FROM rejets").fetchone()["regle"] == "R06_titre_vide"
     assert store.alerted_checks() == set()
     assert process(store, tmp_path / "articles_bruts", tmp_path / "r", [], NOW)["entres"] == 0
+
+
+def test_themes_schema_traces_which_run_produced_themes(conn):
+    migrate(conn, MIGRATIONS)
+    for id_ in ("a1", "a2"):
+        conn.execute(
+            "INSERT INTO articles_propres (id, source, lien, titre, extrait, publie_le,"
+            " cle_titre, brut, traite_le)"
+            " VALUES (%s, 'Le Monde', %s, 'Titre', '', %s, 't', 'b', %s)",
+            (id_, f"https://e.fr/{id_}", NOW, NOW),
+        )
+    conn.execute("INSERT INTO embeddings VALUES ('a1', 'modele@rev', %s, %s)", ([0.1, 0.2], NOW))
+    run_id = conn.execute(
+        "INSERT INTO runs (lance_le, termine_le, fenetre_debut, fenetre_fin, nb_articles,"
+        " hash_entree, modele, parametres, metriques)"
+        " VALUES (%s, %s, %s, %s, 2, 'h', 'modele@rev', '{\"graine\": 42}', '{}') RETURNING id",
+        (NOW, NOW, NOW, NOW),
+    ).fetchone()["id"]
+    theme_id = conn.execute(
+        "INSERT INTO themes (run_id, nom, mots_cles, taille)"
+        " VALUES (%s, 'Tempête', ARRAY['tempête', 'vigilance'], 1) RETURNING id",
+        (run_id,),
+    ).fetchone()["id"]
+    conn.execute(
+        "INSERT INTO articles_themes VALUES (%s, 'a1', %s, 0.9), (%s, 'a2', NULL, NULL)",
+        (run_id, theme_id, run_id),
+    )
+
+    # Le bruit est gardé (theme_id vide) et chaque thème remonte à son run et ses paramètres.
+    row = conn.execute(
+        "SELECT r.parametres, count(*) FILTER (WHERE a.theme_id IS NULL) AS bruit"
+        " FROM themes t JOIN runs r ON r.id = t.run_id"
+        " JOIN articles_themes a ON a.run_id = r.id GROUP BY r.id"
+    ).fetchone()
+    assert (row["parametres"], row["bruit"]) == ({"graine": 42}, 1)
+
+    # Supprimer un article (rétention) supprime son vecteur en cache et son affectation.
+    conn.execute("DELETE FROM articles_propres WHERE id = 'a1'")
+    assert conn.execute("SELECT count(*) AS n FROM embeddings").fetchone()["n"] == 0
+    assert conn.execute("SELECT count(*) AS n FROM articles_themes").fetchone()["n"] == 1
