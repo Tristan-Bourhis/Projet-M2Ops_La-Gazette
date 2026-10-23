@@ -1,6 +1,6 @@
 # État du projet
 
-Dernière mise à jour : 22 octobre 2026 (fin du TD 3).
+Dernière mise à jour : 23 octobre 2026 (début du TD 5).
 
 ## Avancement des TD
 
@@ -9,8 +9,8 @@ Dernière mise à jour : 22 octobre 2026 (fin du TD 3).
 | 1 | Cadrage | Terminé | `docs/cadrage.md`, `docs/Schema-architecture-pipeline.png`, `sources.csv` |
 | 2 | Socle | Terminé, sauf revue croisée | PR #1 fusionnée, CI verte sur `main`, `docs/validation-td2.md` |
 | 3 | Collecte | Terminé | PR #3 et PR de finitions, collecte Prefect toutes les 30 min, `docs/donnees.md`, `docs/exploitation.md` |
-| 4 | Qualité | Terminé, en revue (PR #7) | `docs/qualite.md`, migrations 002-003, alerte Discord déclenchée le 22/10 |
-| 5 | MLOps 1 | À faire | — |
+| 4 | Qualité | Terminé (PR #7 fusionnée) | `docs/qualite.md`, migrations 002-003, alerte Discord déclenchée le 22/10 |
+| 5 | MLOps 1 | En cours : choix techniques arrêtés | Décisions ci-dessous |
 | 6 | MLOps 2 | À faire | — |
 | 7 | Livraison | À faire | — |
 | 8 | Monitoring | À faire | — |
@@ -54,6 +54,12 @@ Jinja2, Nginx, OpenTofu selon l'infrastructure fournie.
 | 2026-10-22 | Contrôles de données en assertions maison plutôt que Pandera (prévu au cadrage) : 4 faits simples, pas de dépendance de plus | `docs/qualite.md` |
 | 2026-10-22 | Alertes vers un webhook Discord (`ALERT_WEBHOOK_URL` dans `.env`, jamais commité) ; une alerte par passage au rouge, renvoyée tant qu'elle n'est pas partie | `src/gazette/quality.py` |
 | 2026-10-22 | Rétention : 90 jours pour le brut, `articles_propres` et `rejets` ; 1 an pour contrôles et rapports | `docs/donnees.md` |
+| 2026-10-23 | Regroupement : BERTopic (choix du cadrage, suggéré par l'enseignant), sur nos propres embeddings mis en cache ; graine UMAP fixée ; paramètres dans `config/clustering.yaml`. À confirmer par la comparaison k-means / HDBSCAN / BERTopic sur un vrai jeu d'articles | `docs/cadrage.md` |
+| 2026-10-23 | Embeddings : `sentence-transformers`, modèle multilingue léger sur CPU (`paraphrase-multilingual-MiniLM-L12-v2`) ; PyTorch en version CPU pour garder une image légère | `requirements.in` |
+| 2026-10-23 | Modèle intégré à l'image au build, à une révision figée : version connue et tracée, aucun téléchargement au run (conteneur en lecture seule) | `Dockerfile` |
+| 2026-10-23 | Nom d'un thème : mots-clés c-TF-IDF (colonne `mots_cles`) + titre d'article le plus proche du centre du groupe | `docs/cadrage.md` |
+| 2026-10-23 | Traçage des runs dans une table `runs` PostgreSQL (fenêtre, nombre d'articles, hash de l'entrée, modèle et version, paramètres, métriques), référencée par `themes.run_id` ; résumé publié en artefact Prefect. Pas de MLflow : un service de plus pour le même besoin | `docs/mlops.md` |
+| 2026-10-23 | Regroupement une fois par jour à 6 h 30 (Europe/Paris), flow `themes-du-jour` : nettoyage (idempotent) → embeddings → regroupement → stockage. Un seul run fait « les thèmes du jour », prêts pour la publication de 7 h | `src/gazette/flows.py` |
 
 ## Responsabilités
 
@@ -80,7 +86,8 @@ Jinja2, Nginx, OpenTofu selon l'infrastructure fournie.
 
 ## Prochaines étapes
 
-1. TD 4 : brancher le webhook d'alerte (`.env`), déclencher l'alerte une fois, lire le rapport 3 matins et ajuster une règle (`docs/qualite.md`).
-2. Procédures d'exploitation : `docs/exploitation.md`. Limite : avec une seule source dans `sources.csv`, ses erreurs passagères ne seraient jamais comptées.
-3. Revue croisée et retour consigné dans `docs/validation-td2.md`.
-4. Un commit par membre via une PR.
+1. TD 4 (reste à faire) : lire le rapport 3 matins de suite et noter ce qu'on en tire dans `docs/qualite.md`.
+2. TD 5 : migration 004 (`embeddings`, `runs`, `themes`, `articles_themes`), module d'embeddings avec cache et test sur 10 articles, regroupement et nommage, flow `themes-du-jour`, `docs/mlops.md`.
+3. Procédures d'exploitation : `docs/exploitation.md`. Limite : avec une seule source dans `sources.csv`, ses erreurs passagères ne seraient jamais comptées.
+4. Revue croisée et retour consigné dans `docs/validation-td2.md`.
+5. Un commit par membre via une PR.
