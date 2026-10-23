@@ -10,7 +10,7 @@ Dernière mise à jour : 23 octobre 2026 (début du TD 5).
 | 2 | Socle | Terminé, sauf revue croisée | PR #1 fusionnée, CI verte sur `main`, `docs/validation-td2.md` |
 | 3 | Collecte | Terminé | PR #3 et PR de finitions, collecte Prefect toutes les 30 min, `docs/donnees.md`, `docs/exploitation.md` |
 | 4 | Qualité | Terminé (PR #7 fusionnée) | `docs/qualite.md`, migrations 002-003, alerte Discord déclenchée le 22/10 |
-| 5 | MLOps 1 | En cours : choix techniques arrêtés | Décisions ci-dessous |
+| 5 | MLOps 1 | Terminé, en revue | `docs/mlops.md`, migration 004, flow `themes-du-jour` (6 h 30), run de référence n° 5 du 23/10 |
 | 6 | MLOps 2 | À faire | — |
 | 7 | Livraison | À faire | — |
 | 8 | Monitoring | À faire | — |
@@ -25,12 +25,15 @@ En place :
 - Ruff et pytest ; tests PostgreSQL exécutés en CI sur une base jetable.
 - Docker multi-étapes (utilisateur non root 10001) et Docker Compose
   (app, collecteur, prefect-server, PostgreSQL).
-- Prefect 3.9 : flow `collecte` toutes les 30 min, UI sur `localhost:4200`.
+- Prefect 3.9 : flow `collecte` toutes les 30 min, flow `themes-du-jour` à 6 h 30,
+  UI sur `localhost:4200`.
+- Thèmes : sentence-transformers (modèle intégré à l'image), BERTopic (UMAP + HDBSCAN),
+  PyTorch CPU ; paramètres dans `config/clustering.yaml`, runs tracés en base.
 - Stockage brut : un fichier JSON par article dans `articles_bruts/` ;
   table `sources` dans PostgreSQL (migrations versionnées).
 - GitHub Actions : lint → tests → build → push GHCR, tag `YYYYMMDDHHMMSS-sha`.
 
-Prévue dans le cadrage, non validée en pratique : Pandas et Pandera, BERTopic,
+Prévue dans le cadrage, non validée en pratique : Pandas et Pandera,
 Jinja2, Nginx, OpenTofu selon l'infrastructure fournie.
 
 ## Décisions
@@ -60,6 +63,10 @@ Jinja2, Nginx, OpenTofu selon l'infrastructure fournie.
 | 2026-10-23 | Nom d'un thème : mots-clés c-TF-IDF (colonne `mots_cles`) + titre d'article le plus proche du centre du groupe | `docs/cadrage.md` |
 | 2026-10-23 | Traçage des runs dans une table `runs` PostgreSQL (fenêtre, nombre d'articles, hash de l'entrée, modèle et version, paramètres, métriques), référencée par `themes.run_id` ; résumé publié en artefact Prefect. Pas de MLflow : un service de plus pour le même besoin | `docs/mlops.md` |
 | 2026-10-23 | Regroupement une fois par jour à 6 h 30 (Europe/Paris), flow `themes-du-jour` : nettoyage (idempotent) → embeddings → regroupement → stockage. Un seul run fait « les thèmes du jour », prêts pour la publication de 7 h | `src/gazette/flows.py` |
+| 2026-10-23 | BERTopic confirmé par la comparaison sur 358 articles réels (k-means : groupes fourre-tout ; HDBSCAN seul : 68 % de bruit) | `docs/mlops.md`, `explorations/` |
+| 2026-10-23 | BERTopic en `language="multilingual"` : en mode anglais par défaut, il retirait les accents des mots-clés | `src/gazette/themes.py` |
+| 2026-10-23 | Bruit gardé comme bruit (pas de réaffectation) ; probabilité d'appartenance stockée pour le TD 6 | `docs/mlops.md` |
+| 2026-10-23 | Compilateur dans l'étage de build Docker : `hdbscan` n'a pas de paquet précompilé pour Linux ARM | `Dockerfile` |
 
 ## Responsabilités
 
@@ -83,11 +90,14 @@ Jinja2, Nginx, OpenTofu selon l'infrastructure fournie.
 - Fixture : contenus fictifs, donc les variantes réelles des flux ne sont pas couvertes.
 - Revue croisée avec une autre équipe : non réalisée.
 - Chaque membre doit avoir fait un commit passé par la CI via une PR.
+- Image Docker ≈ 3,5 Go depuis le TD 5 (PyTorch CPU, modèle intégré) : build plus long.
+- Thèmes : actualité sociale découpée en plusieurs thèmes voisins, quelques groupes
+  fourre-tout, ≈ 25 % de bruit ; à évaluer au TD 6.
 
 ## Prochaines étapes
 
 1. TD 4 (reste à faire) : lire le rapport 3 matins de suite et noter ce qu'on en tire dans `docs/qualite.md`.
-2. TD 5 : migration 004 (`embeddings`, `runs`, `themes`, `articles_themes`), module d'embeddings avec cache et test sur 10 articles, regroupement et nommage, flow `themes-du-jour`, `docs/mlops.md`.
+2. TD 5 : laisser tourner `themes-du-jour` chaque jour ; relire les thèmes de deux journées et remplir la grille de `docs/mlops.md` (matière du TD 6).
 3. Procédures d'exploitation : `docs/exploitation.md`. Limite : avec une seule source dans `sources.csv`, ses erreurs passagères ne seraient jamais comptées.
 4. Revue croisée et retour consigné dans `docs/validation-td2.md`.
 5. Un commit par membre via une PR.
