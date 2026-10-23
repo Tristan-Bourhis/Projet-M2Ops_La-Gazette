@@ -5,6 +5,7 @@ from pathlib import Path
 
 import psycopg
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 from gazette.collect import SLEEP_AFTER_FAILURES, Source
 
@@ -167,3 +168,72 @@ class PostgresCleanStore:
             " ORDER BY controle, execute_le DESC, id DESC"
         )
         return {r["controle"] for r in rows if not r["ok"] and r["alerte_envoyee"]}
+
+
+class PostgresThemeStore:
+    """Tables du TD 5 (migration 004) : fenêtre, cache des embeddings, runs et thèmes."""
+
+    def __init__(self, conn: psycopg.Connection):
+        self.conn = conn
+
+    def window_articles(self, start, end):
+        rows = self.conn.execute(
+            "SELECT id, source, titre, extrait, publie_le FROM articles_propres"
+            " WHERE publie_le > %s AND publie_le <= %s ORDER BY publie_le, id",
+            (start, end),
+        )
+        return list(rows)
+
+    def cached_embeddings(self, ids, modele):
+        rows = self.conn.execute(
+            "SELECT article_id, vecteur FROM embeddings WHERE modele = %s AND article_id = ANY(%s)",
+            (modele, ids),
+        )
+        return {row["article_id"]: row["vecteur"] for row in rows}
+
+    def save_embeddings(self, vectors, modele, at):
+        with self.conn.transaction(), self.conn.cursor() as cursor:
+            cursor.executemany(
+                "INSERT INTO embeddings (article_id, modele, vecteur, calcule_le)"
+                " VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
+                [(article_id, modele, vector, at) for article_id, vector in vectors.items()],
+            )
+
+    def start_run(self, run):
+        row = self.conn.execute(
+            "INSERT INTO runs (lance_le, fenetre_debut, fenetre_fin, nb_articles, hash_entree,"
+            " modele, parametres) VALUES (%(lance_le)s, %(fenetre_debut)s, %(fenetre_fin)s,"
+            " %(nb_articles)s, %(hash_entree)s, %(modele)s, %(parametres)s) RETURNING id",
+            run | {"parametres": Jsonb(run["parametres"])},
+        ).fetchone()
+        return row["id"]
+
+    def finish_run(self, run_id, themes, affectations, metriques, at):
+        """Thèmes, affectations et fin du run en une transaction : tout ou rien."""
+        with self.conn.transaction():
+            theme_ids = [
+                self.conn.execute(
+                    "INSERT INTO themes (run_id, nom, mots_cles, taille)"
+                    " VALUES (%s, %s, %s, %s) RETURNING id",
+                    (run_id, t["nom"], t["mots_cles"], t["taille"]),
+                ).fetchone()["id"]
+                for t in themes
+            ]
+            with self.conn.cursor() as cursor:
+                cursor.executemany(
+                    "INSERT INTO articles_themes (run_id, article_id, theme_id, probabilite)"
+                    " VALUES (%s, %s, %s, %s)",
+                    [
+                        (
+                            run_id,
+                            a["article_id"],
+                            None if a["theme"] is None else theme_ids[a["theme"]],
+                            a["probabilite"],
+                        )
+                        for a in affectations
+                    ],
+                )
+            self.conn.execute(
+                "UPDATE runs SET termine_le = %s, metriques = %s WHERE id = %s",
+                (at, Jsonb(metriques), run_id),
+            )

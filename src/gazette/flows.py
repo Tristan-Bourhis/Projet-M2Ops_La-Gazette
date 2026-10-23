@@ -1,13 +1,15 @@
-"""Orchestration Prefect : collecte, puis nettoyage et contrôles, toutes les 30 minutes."""
+"""Orchestration Prefect : collecte et nettoyage toutes les 30 min ; thèmes du jour à 6 h 30."""
 
 import logging
 from pathlib import Path
 
-from prefect import flow, get_run_logger, task
+from prefect import flow, get_run_logger, serve, task
 from prefect.artifacts import create_markdown_artifact, create_table_artifact
+from prefect.schedules import Cron
 
 from gazette.clean import run_cleaning
 from gazette.collect import run_collection
+from gazette.themes import run_daily_themes, themes_markdown
 
 INTERVAL_SECONDS = 30 * 60
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -68,5 +70,42 @@ def collecte(
     return summary | {"nettoyage": {k: cleaning[k] for k in ("entres", "gardes", "rejetes")}}
 
 
+@task(name="regroupement-thematique")
+def regroupement(config: str) -> dict:
+    """Embeddings, BERTopic, nommage ; le run est tracé dans la table runs."""
+    result = run_daily_themes(Path(config))
+    create_markdown_artifact(
+        key="themes-du-jour", markdown=themes_markdown(result), description="Thèmes du jour"
+    )
+    create_table_artifact(
+        key="metriques-themes",
+        table=[{"metrique": k, "valeur": v} for k, v in result["metriques"].items()],
+        description=f"Métriques du run {result['run_id']}",
+    )
+    return result
+
+
+@flow(name="themes-du-jour")
+def themes_du_jour(
+    sources: str = "sources.csv",
+    output: str = "/data/articles_bruts",
+    rapports: str = "/data/rapports",
+    config: str = "config/clustering.yaml",
+) -> dict:
+    # Nettoyage d'abord (il ne traite que les nouveaux bruts) : on regroupe des données à jour.
+    nettoyage(output, rapports, sources)
+    result = regroupement(config)
+    get_run_logger().info(
+        "Run %s : %s articles, %s", result["run_id"], result["nb_articles"], result["metriques"]
+    )
+    return {k: result[k] for k in ("run_id", "nb_articles", "metriques")}
+
+
 if __name__ == "__main__":
-    collecte.serve(name="collecte-toutes-les-30-min", interval=INTERVAL_SECONDS)
+    serve(
+        collecte.to_deployment(name="collecte-toutes-les-30-min", interval=INTERVAL_SECONDS),
+        # Une fois par jour : « thèmes du jour » = un seul run, prêt pour la publication de 7 h.
+        themes_du_jour.to_deployment(
+            name="themes-6h30", schedule=Cron("30 6 * * *", timezone="Europe/Paris")
+        ),
+    )

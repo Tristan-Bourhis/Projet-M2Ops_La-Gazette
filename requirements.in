@@ -1,5 +1,15 @@
+# PyTorch en version CPU : sans cet index, pip installe la version CUDA (plusieurs Go).
+--extra-index-url https://download.pytorch.org/whl/cpu
 feedparser==6.0.14
 httpx==0.28.1
 defusedxml==0.7.1
 psycopg[binary]>=3.2,<3.3
 prefect>=3.4,<4
+PyYAML>=6,<7
+# Thèmes (TD 5) : embeddings, réduction, regroupement, mots-clés.
+torch==2.14.1
+sentence-transformers==6.2.0
+bertopic==0.17.4
+umap-learn==0.5.12
+hdbscan==0.8.44
+scikit-learn==1.9.1

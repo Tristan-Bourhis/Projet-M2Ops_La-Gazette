@@ -1,7 +1,7 @@
 """Tests sur un vrai PostgreSQL : lancés seulement si TEST_DATABASE_URL est défini."""
 
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -28,13 +28,13 @@ def conn(tmp_path):
         pytest.fail("TEST_DATABASE_URL doit viser une base dont le nom finit par _test.")
     with connect(URL) as connection:
         connection.execute(
-            "DROP TABLE IF EXISTS rejets, articles_propres, controles_qualite, sources,"
-            " schema_migrations"
+            "DROP TABLE IF EXISTS articles_themes, themes, runs, embeddings, rejets,"
+            " articles_propres, controles_qualite, sources, schema_migrations"
         )
         yield connection
         connection.execute(
-            "DROP TABLE IF EXISTS rejets, articles_propres, controles_qualite, sources,"
-            " schema_migrations"
+            "DROP TABLE IF EXISTS articles_themes, themes, runs, embeddings, rejets,"
+            " articles_propres, controles_qualite, sources, schema_migrations"
         )
 
 
@@ -48,6 +48,7 @@ def test_migrations_are_applied_once(conn):
         "001_creer_table_sources.sql",
         "002_creer_tables_nettoyage.sql",
         "003_alerte_envoyee.sql",
+        "004_creer_tables_themes.sql",
     ]
     assert migrate(conn, MIGRATIONS) == []
 
@@ -111,7 +112,6 @@ def test_success_is_recorded(conn, tmp_path):
 
 def test_clean_store_on_postgres(conn, tmp_path):
     import json
-    from datetime import timedelta
 
     from gazette.clean import process
     from gazette.db import PostgresCleanStore
@@ -137,3 +137,117 @@ def test_clean_store_on_postgres(conn, tmp_path):
     assert conn.execute("SELECT regle FROM rejets").fetchone()["regle"] == "R06_titre_vide"
     assert store.alerted_checks() == set()
     assert process(store, tmp_path / "articles_bruts", tmp_path / "r", [], NOW)["entres"] == 0
+
+
+def test_themes_schema_traces_which_run_produced_themes(conn):
+    migrate(conn, MIGRATIONS)
+    for id_ in ("a1", "a2"):
+        conn.execute(
+            "INSERT INTO articles_propres (id, source, lien, titre, extrait, publie_le,"
+            " cle_titre, brut, traite_le)"
+            " VALUES (%s, 'Le Monde', %s, 'Titre', '', %s, 't', 'b', %s)",
+            (id_, f"https://e.fr/{id_}", NOW, NOW),
+        )
+    conn.execute("INSERT INTO embeddings VALUES ('a1', 'modele@rev', %s, %s)", ([0.1, 0.2], NOW))
+    run_id = conn.execute(
+        "INSERT INTO runs (lance_le, termine_le, fenetre_debut, fenetre_fin, nb_articles,"
+        " hash_entree, modele, parametres, metriques)"
+        " VALUES (%s, %s, %s, %s, 2, 'h', 'modele@rev', '{\"graine\": 42}', '{}') RETURNING id",
+        (NOW, NOW, NOW, NOW),
+    ).fetchone()["id"]
+    theme_id = conn.execute(
+        "INSERT INTO themes (run_id, nom, mots_cles, taille)"
+        " VALUES (%s, 'Tempête', ARRAY['tempête', 'vigilance'], 1) RETURNING id",
+        (run_id,),
+    ).fetchone()["id"]
+    conn.execute(
+        "INSERT INTO articles_themes VALUES (%s, 'a1', %s, 0.9), (%s, 'a2', NULL, NULL)",
+        (run_id, theme_id, run_id),
+    )
+
+    # Le bruit est gardé (theme_id vide) et chaque thème remonte à son run et ses paramètres.
+    row = conn.execute(
+        "SELECT r.parametres, count(*) FILTER (WHERE a.theme_id IS NULL) AS bruit"
+        " FROM themes t JOIN runs r ON r.id = t.run_id"
+        " JOIN articles_themes a ON a.run_id = r.id GROUP BY r.id"
+    ).fetchone()
+    assert (row["parametres"], row["bruit"]) == ({"graine": 42}, 1)
+
+    # Supprimer un article (rétention) supprime son vecteur en cache et son affectation.
+    conn.execute("DELETE FROM articles_propres WHERE id = 'a1'")
+    assert conn.execute("SELECT count(*) AS n FROM embeddings").fetchone()["n"] == 0
+    assert conn.execute("SELECT count(*) AS n FROM articles_themes").fetchone()["n"] == 1
+
+
+def test_embeddings_cache_on_postgres(conn):
+    from gazette.db import PostgresThemeStore
+    from gazette.embed import embed_articles, window_articles
+
+    migrate(conn, MIGRATIONS)
+    for i in range(11):  # 10 articles dans la fenêtre, 1 publié il y a 30 h
+        conn.execute(
+            "INSERT INTO articles_propres (id, source, lien, titre, extrait, publie_le,"
+            " cle_titre, brut, traite_le) VALUES (%s, 'Le Monde', %s, %s, 'Extrait', %s,"
+            " 't', 'b', %s)",
+            (
+                f"a{i}",
+                f"https://e.fr/{i}",
+                f"Titre {i}",
+                NOW - timedelta(hours=30 if i == 10 else 1),
+                NOW,
+            ),
+        )
+    store = PostgresThemeStore(conn)
+    dix = window_articles(store, NOW)
+    assert len(dix) == 10 and dix[0]["extrait"] == "Extrait"
+
+    calls = []
+
+    def encoder(textes):
+        calls.extend(textes)
+        return [[0.5, 0.25] for _ in textes]
+
+    assert embed_articles(store, dix, "m@1", encoder, NOW)["a0"] == [0.5, 0.25]
+    assert embed_articles(store, dix, "m@1", encoder, NOW)["a0"] == [0.5, 0.25]
+    assert len(calls) == 10  # le second passage lit le cache en base
+
+
+def test_run_themes_on_postgres(conn):
+    from gazette.db import PostgresThemeStore
+    from gazette.themes import run_themes
+
+    migrate(conn, MIGRATIONS)
+    for i in range(16):
+        conn.execute(
+            "INSERT INTO articles_propres (id, source, lien, titre, extrait, publie_le,"
+            " cle_titre, brut, traite_le) VALUES (%s, 'Le Monde', %s, %s, 'Extrait', %s,"
+            " 't', 'b', %s)",
+            (f"a{i}", f"https://e.fr/{i}", f"Titre {i}", NOW - timedelta(minutes=i + 1), NOW),
+        )
+    labels = [0] * 6 + [1] * 6 + [-1] * 4
+    config = {
+        "modele": {"nom": "m", "revision": "1"},
+        "graine": 42,
+        "umap": {"n_neighbors": 15},
+    }
+
+    def encoder(textes):
+        return [[1.0, 0.0] if i < 6 else [0.0, 1.0] for i in range(len(textes))]
+
+    def cluster(textes, vecteurs, config):
+        return labels, [0.8] * 16, {0: ["a", "b"], 1: ["c", "d"]}
+
+    result = run_themes(PostgresThemeStore(conn), encoder, config, NOW, cluster=cluster)
+
+    # « Quel run a produit les thèmes en base ? » : une requête.
+    rows = conn.execute(
+        "SELECT t.taille, t.mots_cles, r.parametres, r.metriques FROM themes t"
+        " JOIN runs r ON r.id = t.run_id WHERE r.termine_le IS NOT NULL ORDER BY t.id"
+    ).fetchall()
+    assert [(r["taille"], r["mots_cles"]) for r in rows] == [(6, ["a", "b"]), (6, ["c", "d"])]
+    assert rows[0]["parametres"]["graine"] == 42 and rows[0]["metriques"]["part_bruit"] == 0.25
+    noise = conn.execute(
+        "SELECT count(*) AS n FROM articles_themes WHERE run_id = %s AND theme_id IS NULL",
+        (result["run_id"],),
+    ).fetchone()["n"]
+    assert noise == 4

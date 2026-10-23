@@ -4,6 +4,8 @@
 !requirements.lock
 !requirements-dev.lock
 !sources.csv
+!config/
+!config/**
 !migrations/
 !migrations/**
 !src/
