@@ -1,7 +1,7 @@
 """Tests sur un vrai PostgreSQL : lancés seulement si TEST_DATABASE_URL est défini."""
 
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -112,7 +112,6 @@ def test_success_is_recorded(conn, tmp_path):
 
 def test_clean_store_on_postgres(conn, tmp_path):
     import json
-    from datetime import timedelta
 
     from gazette.clean import process
     from gazette.db import PostgresCleanStore
@@ -178,3 +177,36 @@ def test_themes_schema_traces_which_run_produced_themes(conn):
     conn.execute("DELETE FROM articles_propres WHERE id = 'a1'")
     assert conn.execute("SELECT count(*) AS n FROM embeddings").fetchone()["n"] == 0
     assert conn.execute("SELECT count(*) AS n FROM articles_themes").fetchone()["n"] == 1
+
+
+def test_embeddings_cache_on_postgres(conn):
+    from gazette.db import PostgresThemeStore
+    from gazette.embed import embed_articles, window_articles
+
+    migrate(conn, MIGRATIONS)
+    for i in range(11):  # 10 articles dans la fenêtre, 1 publié il y a 30 h
+        conn.execute(
+            "INSERT INTO articles_propres (id, source, lien, titre, extrait, publie_le,"
+            " cle_titre, brut, traite_le) VALUES (%s, 'Le Monde', %s, %s, 'Extrait', %s,"
+            " 't', 'b', %s)",
+            (
+                f"a{i}",
+                f"https://e.fr/{i}",
+                f"Titre {i}",
+                NOW - timedelta(hours=30 if i == 10 else 1),
+                NOW,
+            ),
+        )
+    store = PostgresThemeStore(conn)
+    dix = window_articles(store, NOW)
+    assert len(dix) == 10 and dix[0]["extrait"] == "Extrait"
+
+    calls = []
+
+    def encoder(textes):
+        calls.extend(textes)
+        return [[0.5, 0.25] for _ in textes]
+
+    assert embed_articles(store, dix, "m@1", encoder, NOW)["a0"] == [0.5, 0.25]
+    assert embed_articles(store, dix, "m@1", encoder, NOW)["a0"] == [0.5, 0.25]
+    assert len(calls) == 10  # le second passage lit le cache en base

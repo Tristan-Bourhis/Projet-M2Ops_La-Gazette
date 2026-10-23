@@ -167,3 +167,33 @@ class PostgresCleanStore:
             " ORDER BY controle, execute_le DESC, id DESC"
         )
         return {r["controle"] for r in rows if not r["ok"] and r["alerte_envoyee"]}
+
+
+class PostgresThemeStore:
+    """Tables du TD 5 (migration 004) : fenêtre d'articles et cache des embeddings."""
+
+    def __init__(self, conn: psycopg.Connection):
+        self.conn = conn
+
+    def window_articles(self, start, end):
+        rows = self.conn.execute(
+            "SELECT id, source, titre, extrait, publie_le FROM articles_propres"
+            " WHERE publie_le > %s AND publie_le <= %s ORDER BY publie_le, id",
+            (start, end),
+        )
+        return list(rows)
+
+    def cached_embeddings(self, ids, modele):
+        rows = self.conn.execute(
+            "SELECT article_id, vecteur FROM embeddings WHERE modele = %s AND article_id = ANY(%s)",
+            (modele, ids),
+        )
+        return {row["article_id"]: row["vecteur"] for row in rows}
+
+    def save_embeddings(self, vectors, modele, at):
+        with self.conn.transaction(), self.conn.cursor() as cursor:
+            cursor.executemany(
+                "INSERT INTO embeddings (article_id, modele, vecteur, calcule_le)"
+                " VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
+                [(article_id, modele, vector, at) for article_id, vector in vectors.items()],
+            )
