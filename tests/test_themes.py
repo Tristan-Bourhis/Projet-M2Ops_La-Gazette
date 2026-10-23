@@ -59,6 +59,7 @@ def test_run_is_traced_with_data_params_metrics_and_artifacts():
     assert run["nb_articles"] == 16 and run["hash_entree"] == input_hash(articles())
     assert run["fenetre_debut"] == NOW - timedelta(hours=24)
     assert run["modele"] == model_key(CONFIG) and run["parametres"]["graine"] == 42
+    assert set(run["parametres"]["bibliotheques"]) >= {"bertopic", "umap-learn", "hdbscan"}
     assert run["metriques"]["themes"] == 2
     assert run["metriques"]["part_bruit"] == 0.25
     assert run["metriques"]["silhouette"] == 1.0  # groupes parfaitement séparés
@@ -72,9 +73,12 @@ def test_run_is_traced_with_data_params_metrics_and_artifacts():
     assert all(a["probabilite"] is None for a in noise)
 
 
-def test_input_hash_ignores_order():
+def test_input_hash_ignores_order_but_not_text():
     assert input_hash(articles()) == input_hash(list(reversed(articles())))
     assert input_hash(articles()) != input_hash(articles()[1:])
+    changed = articles()
+    changed[0]["extrait"] = "Extrait corrigé"
+    assert input_hash(articles()) != input_hash(changed)  # même id, texte différent
 
 
 def test_central_title_is_closest_to_group_center():

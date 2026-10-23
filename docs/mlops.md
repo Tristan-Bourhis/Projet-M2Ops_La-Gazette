@@ -15,7 +15,8 @@ Flow Prefect `themes-du-jour`, déploiement `themes-6h30`, **tous les jours à 6
    (table `embeddings`) ;
 4. **regroupement BERTopic** : UMAP (voisinages en cosinus, 384 → 5 dimensions, graine fixée)
    puis HDBSCAN ; les articles isolés restent hors thème (bruit) ;
-5. **nommage** : mots-clés c-TF-IDF + titre de l'article le plus proche du centre du groupe ;
+5. **nommage** : mots-clés c-TF-IDF (colonne `mots_cles`) + titre de l'article le plus proche
+   du centre du groupe (colonne `nom`, plus lisible qu'une suite de mots) ;
 6. **stockage** : `runs`, `themes`, `articles_themes`, et un résumé en artefact Prefect.
 
 Le run est inséré **avant** le calcul : s'il échoue, il reste en base avec `termine_le` vide
@@ -50,9 +51,10 @@ Tout est dans **`config/clustering.yaml`**, copié tel quel dans `runs.parametre
 | Demandé par le TD | Où |
 |---|---|
 | Fenêtre de données | `runs.fenetre_debut`, `fenetre_fin`, `nb_articles` |
-| Hash de l'entrée | `runs.hash_entree` : sha256 des id d'articles triés (mêmes articles = même hash) |
+| Hash de l'entrée | `runs.hash_entree` : sha256 des (id, texte lu par le modèle) triés ; un article au texte modifié change le hash (depuis le run 6 ; avant : id seuls) |
 | Modèle et version | `runs.modele` (`nom@revision`) |
 | Paramètres | `runs.parametres` (jsonb, contenu du YAML) |
+| Versions des bibliothèques | `runs.parametres->'bibliotheques'` : bertopic, umap-learn, hdbscan, scikit-learn, sentence-transformers, torch (depuis le run 6). Une mise à jour peut changer les thèmes sans qu'aucun paramètre ne bouge ; les versions sont aussi figées dans `requirements.lock` |
 | Métriques | `runs.metriques` : `themes`, `taille_mediane`, `part_bruit`, `silhouette` (cosinus, calculée sans le bruit) |
 | Artefacts | `themes` (nom, mots-clés, taille), `articles_themes` (affectation et probabilité ; `theme_id` vide = bruit) |
 | Durée | `termine_le - lance_le` |
@@ -106,7 +108,9 @@ BERTopic donne des thèmes cohérents. Choix conforme au cadrage (`docs/cadrage.
 **Run 5**, 23/10/2026 à 15:56 (Paris), lancé depuis Prefect (déploiement `themes-6h30`),
 9,2 s. 396 articles (hash `7fab6c49af01…`), **24 thèmes**, taille médiane 10, bruit 25 %,
 silhouette 0,16. Le run 4, sur les mêmes articles, donne exactement les mêmes métriques.
-Les runs 1 à 3 sont des essais de développement lancés hors pipeline.
+Les runs 1 à 3 sont des essais de développement lancés hors pipeline. Les runs 4 à 6 ont été
+déclenchés à la main **via le déploiement Prefect**, donc par le pipeline ; le premier run
+programmé est celui du 24/10 à 6 h 30.
 
 | Taille | Mots-clés | Titre le plus central |
 |---|---|---|

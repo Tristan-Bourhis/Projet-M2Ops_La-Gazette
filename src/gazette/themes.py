@@ -63,8 +63,27 @@ def model_key(config: dict) -> str:
 
 
 def input_hash(articles: list[dict]) -> str:
-    """Empreinte des données d'entrée : mêmes articles = même hash, quel que soit l'ordre."""
-    return hashlib.sha256("\n".join(sorted(a["id"] for a in articles)).encode()).hexdigest()
+    """Empreinte des données d'entrée (id + texte lu par le modèle), indépendante de l'ordre :
+    mêmes articles au même texte = même hash."""
+    lines = sorted(f"{a['id']}\t{article_text(a)}" for a in articles)
+    return hashlib.sha256("\n".join(lines).encode()).hexdigest()
+
+
+LIBRARIES = ("bertopic", "umap-learn", "hdbscan", "scikit-learn", "sentence-transformers", "torch")
+
+
+def library_versions() -> dict[str, str]:
+    """Versions des bibliothèques qui produisent les thèmes : une mise à jour peut changer
+    les résultats sans qu'aucun paramètre ne bouge, donc elle doit se voir dans le run."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    versions = {}
+    for name in LIBRARIES:
+        try:
+            versions[name] = version(name)
+        except PackageNotFoundError:
+            versions[name] = None
+    return versions
 
 
 def bertopic_cluster(textes, vecteurs, config):
@@ -151,7 +170,7 @@ def run_themes(
             "nb_articles": len(articles),
             "hash_entree": input_hash(articles),
             "modele": modele,
-            "parametres": config,
+            "parametres": config | {"bibliotheques": library_versions()},
         }
     )
     minimum = config["umap"]["n_neighbors"] + 1
