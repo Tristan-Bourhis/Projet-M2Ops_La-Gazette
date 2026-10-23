@@ -2,9 +2,10 @@
 
 import hashlib
 import logging
+import os
 import statistics
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
@@ -15,6 +16,7 @@ from gazette.embed import (
     MemoryEmbeddingStore,
     article_text,
     embed_articles,
+    load_encoder,
     window_articles,
 )
 
@@ -181,6 +183,42 @@ def run_themes(
         for article, label, probability in zip(articles, labels, probabilities, strict=True)
     ]
     result = metrics(labels, vecteurs)
-    store.finish_run(run_id, themes, affectations, result, now)
+    # Heure réelle de fin (now = début du run, il fixe la fenêtre) : la durée reste lisible.
+    store.finish_run(run_id, themes, affectations, result, datetime.now(UTC))
     logger.info("Run %d : %d articles, métriques %s", run_id, len(articles), result)
     return {"run_id": run_id, "nb_articles": len(articles), "metriques": result, "themes": themes}
+
+
+def themes_markdown(result: dict) -> str:
+    """Résumé lisible d'un run : publié en artefact Prefect (onglet Artifacts)."""
+    m = result["metriques"]
+    lines = [
+        f"# Thèmes du jour — run {result['run_id']}",
+        "",
+        f"{result['nb_articles']} articles publiés dans les dernières 24 h ; {m['themes']} thèmes,"
+        f" taille médiane {m['taille_mediane']}, bruit {m['part_bruit']:.0%},"
+        f" silhouette {m['silhouette']}.",
+        "",
+        "| Taille | Mots-clés | Titre le plus central |",
+        "|---|---|---|",
+    ]
+    lines += [
+        f"| {t['taille']} | {', '.join(t['mots_cles'])} | {t['nom']} |" for t in result["themes"]
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def run_daily_themes(config_path: Path = CONFIG) -> dict:
+    """Run du pipeline : lit articles_propres et écrit les tables du TD 5 (DATABASE_URL requis)."""
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError(
+            "DATABASE_URL non défini : les thèmes se calculent sur articles_propres."
+        )
+    from gazette.db import PostgresThemeStore, connect, migrate
+
+    config = load_config(config_path)
+    encoder = load_encoder(config["modele"]["nom"], config["modele"]["revision"])
+    with connect(database_url) as conn:
+        migrate(conn)
+        return run_themes(PostgresThemeStore(conn), encoder, config, datetime.now(UTC))

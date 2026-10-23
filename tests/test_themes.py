@@ -12,6 +12,7 @@ from gazette.themes import (
     metrics,
     model_key,
     run_themes,
+    themes_markdown,
 )
 
 NOW = datetime(2026, 10, 23, 6, 30, tzinfo=UTC)
@@ -54,7 +55,7 @@ def test_run_is_traced_with_data_params_metrics_and_artifacts():
     result = run_themes(store, encoder, CONFIG, NOW, cluster=fake_cluster)
 
     run = store.runs[result["run_id"]]
-    assert run["termine_le"] == NOW
+    assert run["lance_le"] == NOW and run["termine_le"] > NOW
     assert run["nb_articles"] == 16 and run["hash_entree"] == input_hash(articles())
     assert run["fenetre_debut"] == NOW - timedelta(hours=24)
     assert run["modele"] == model_key(CONFIG) and run["parametres"]["graine"] == 42
@@ -112,3 +113,10 @@ def test_bertopic_is_reproducible_with_fixed_seed():
     second = bertopic_cluster(textes, vecteurs, CONFIG)
     assert first[0] == second[0]  # même graine, mêmes données : mêmes thèmes
     assert len(set(first[0]) - {-1}) == 3
+
+
+def test_markdown_summary_lists_themes_of_the_run():
+    result = run_themes(MemoryThemeStore(articles()), encoder, CONFIG, NOW, cluster=fake_cluster)
+    markdown = themes_markdown(result)
+    assert "run 1" in markdown and "bruit 25%" in markdown
+    assert "| 6 | tempête, vigilance |" in markdown
