@@ -72,8 +72,11 @@ Jinja2, Nginx, OpenTofu selon l'infrastructure fournie.
 
 | Membre | Composantes |
 |---|---|
+| Ananda | Cadrage (TD 1) : choix techniques, schéma d'architecture, sources |
+| Tristan | Socle (TD 2) : dépôt, Docker, CI GitHub Actions, protection de `main` |
 | Riad | Collecte (TD 3) : collecteur, stockage brut, table `sources`, orchestration Prefect |
 | Samy | Nettoyage et qualité (TD 4) : normalisation, règles d'exclusion, `articles_propres`, rapport, contrôles et alertes |
+| Ananda | Thèmes du jour (TD 5) : comparaison des approches, embeddings avec cache, BERTopic, runs tracés, flow `themes-du-jour`, `docs/mlops.md` |
 | _à compléter_ | |
 
 ## Problèmes ouverts
