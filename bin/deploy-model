@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+# Runner dédié, checkout du commit validé ; aucun secret en argument de commande.
+actor="${GITHUB_ACTOR:?Auteur CI requis}"
+docker compose -p "${GAZETTE_PROJECT:-projetm2ops}" up -d --wait postgres prefect-server
+docker compose -p "${GAZETTE_PROJECT:-projetm2ops}" build collecteur
+# Une évaluation recalée interrompt ce script avant toute promotion ou relance.
+docker compose -p "${GAZETTE_PROJECT:-projetm2ops}" run --rm --no-deps collecteur \
+  python -m gazette.mlops evaluate --promote --actor "$actor"
+docker compose -p "${GAZETTE_PROJECT:-projetm2ops}" up -d --no-deps collecteur
+docker compose -p "${GAZETTE_PROJECT:-projetm2ops}" exec -T collecteur python -m gazette.mlops status

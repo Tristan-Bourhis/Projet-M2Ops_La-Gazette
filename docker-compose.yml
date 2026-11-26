@@ -62,6 +62,7 @@ services:
     build:
       context: .
       target: final
+    entrypoint: ["sh", "/app/bin/start-model"]
     command: ["python", "-m", "gazette.flows"]
     depends_on:
       postgres:

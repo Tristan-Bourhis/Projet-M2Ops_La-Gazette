@@ -1,0 +1,13 @@
+# Seuils initiaux : référence 23/10 (bruit .25, silhouette .16).
+seuils:
+  silhouette_min: 0.05
+  part_bruit_max: 0.60
+  themes_min: 2
+  part_groupe_max: 0.50
+  taille_mediane_min: 3
+derive:
+  jours_consecutifs: 2
+  part_bruit_max: 0.45
+  silhouette_min: 0.10
+relecture:
+  taille: 10

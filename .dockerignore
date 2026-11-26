@@ -14,5 +14,6 @@
 !tests/**
 !bin/
 !bin/check
+!bin/start-model
 **/__pycache__
 **/*.pyc

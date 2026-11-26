@@ -30,6 +30,7 @@ COPY --from=builder /opt/hf /opt/hf
 COPY sources.csv ./
 COPY config ./config
 COPY migrations ./migrations
+COPY bin/start-model ./bin/start-model
 COPY tests/fixtures/ouest-france.xml ./tests/fixtures/ouest-france.xml
 USER 10001:10001
 CMD ["python", "-m", "gazette"]

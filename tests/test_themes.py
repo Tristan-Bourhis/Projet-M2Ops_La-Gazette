@@ -96,11 +96,12 @@ def test_metrics_without_themes():
     }
 
 
-def test_too_few_articles_leaves_an_unfinished_run():
+def test_too_few_articles_records_rejection():
     store = MemoryThemeStore(articles()[:3])
     with pytest.raises(ValueError, match="il en faut au moins"):
         run_themes(store, encoder, CONFIG, NOW, cluster=fake_cluster)
-    assert store.runs[1]["termine_le"] is None and store.themes == []
+    assert store.runs[1]["termine_le"] is not None and store.themes == []
+    assert store.runs[1]["evaluation"]["verdict"] == "recale"
 
 
 def test_bertopic_is_reproducible_with_fixed_seed():

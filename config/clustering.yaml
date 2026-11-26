@@ -1,5 +1,5 @@
-# Paramètres du regroupement (TD 5). Chaque run enregistre ce contenu dans runs.parametres :
-# modifier une valeur ici, c'est changer les runs suivants, et la trace le montre.
+# Paramètres candidats : modifier par PR, évaluation CI puis promotion au merge.
+# Les runs quotidiens lisent les paramètres de production dans versions_modele.
 
 modele:
   nom: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2

@@ -84,3 +84,40 @@ jobs:
       - name: Fermer la session du registre
         if: always() && github.event_name == 'push'
         run: docker logout ghcr.io
+
+  evaluation:
+    name: Évaluation hier
+    if: github.event_name == 'pull_request'
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - name: Construire le candidat
+        run: docker build --target final -t gazette-candidate .
+      - name: Évaluer sur la copie CI des données d'hier
+        env:
+          DATABASE_URL: ${{ secrets.EVALUATION_DATABASE_URL }}
+        run: |
+          test -n "$DATABASE_URL"
+          docker run --rm -e DATABASE_URL gazette-candidate \
+            python -m gazette.mlops evaluate > evaluation.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evaluation-hier
+          path: evaluation.json
+
+  deploy-model:
+    name: Promotion et déploiement
+    if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    needs: [quality, image]
+    runs-on: [self-hosted, gazette-production]
+    environment: production
+    concurrency:
+      group: gazette-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v6
+      - name: Réévaluer le commit fusionné, promouvoir et déployer
+        run: sh bin/deploy-model

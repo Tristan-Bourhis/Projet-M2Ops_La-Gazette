@@ -1,6 +1,6 @@
 # État du projet
 
-Dernière mise à jour : 23 octobre 2026 (début du TD 5).
+Dernière mise à jour : 26 novembre 2026 (reprise locale du TD 6).
 
 ## Avancement des TD
 
@@ -11,7 +11,7 @@ Dernière mise à jour : 23 octobre 2026 (début du TD 5).
 | 3 | Collecte | Terminé | PR #3 et PR de finitions, collecte Prefect toutes les 30 min, `docs/donnees.md`, `docs/exploitation.md` |
 | 4 | Qualité | Terminé (PR #7 fusionnée) | `docs/qualite.md`, migrations 002-003, alerte Discord déclenchée le 22/10 |
 | 5 | MLOps 1 | Terminé, en revue | `docs/mlops.md`, migration 004, flow `themes-du-jour` (6 h 30), run de référence n° 5 du 23/10 |
-| 6 | MLOps 2 | À faire | — |
+| 6 | MLOps 2 | Implémenté, validation réelle en cours | `docs/mlops.md`, migration 005, registre et rollback testés ; relecture humaine en attente |
 | 7 | Livraison | À faire | — |
 | 8 | Monitoring | À faire | — |
 | 9 | IaC | À faire | — |
@@ -84,8 +84,8 @@ Jinja2, Nginx, OpenTofu selon l'infrastructure fournie.
 - **Alertes** : la machine qui fait tourner la collecte doit avoir un `.env` avec
   `ALERT_WEBHOOK_URL`, sinon chaque passage rouge logue `alerte_non_envoyee` (et réessaie).
 
-- **Exécution de la collecte** : elle tourne sur le poste de Riad, qui doit rester
-  allumé ; décider qui la fait tourner jusqu'à l'infrastructure de production.
+- **Exécution de la collecte** : reprise temporaire sur le poste de Tristan à sa demande le 26/11 ;
+  garder cette machine allumée et connectée. Aucun déploiement distant réalisé.
 - Seules La Croix et Libération envoient `ETag` / `Last-Modified` : les 6 autres
   flux sont retéléchargés en entier à chaque passage.
 - `rubrique` souvent vide (Le Monde n'envoie pas de `<category>`).
