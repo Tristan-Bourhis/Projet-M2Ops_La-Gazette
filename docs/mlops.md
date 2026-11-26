@@ -222,11 +222,13 @@ peu discriminants.
 ## Vérification de cette implémentation
 
 Exécution sur l'image complète et une base PostgreSQL `gazette_test` distincte :
-**112 tests réussis, aucun ignoré**, en 40,79 secondes. Le test BERTopic de
-reproductibilité a réellement été exécuté, avec deux avertissements UMAP attendus
-(graine fixée, calcul séquentiel). Ruff et actionlint passent.
+112 tests réussis, aucun ignoré. Après ajout des tests de compensation et de
+fenêtre historique, **115 tests réussissent sur GitHub Actions**, aucun ignoré,
+en 28,67 secondes ([job de validation](https://github.com/Tristan-Bourhis/Projet-M2Ops_La-Gazette/actions/runs/45839472795/job/139977022981)).
+Le test BERTopic de reproductibilité est réellement exécuté, avec deux
+avertissements UMAP attendus (graine fixée, calcul séquentiel). Ruff et actionlint passent.
 Les tests contrôlent les garde-fous et le rollback CLI ; les runs de reprise
-ci-dessous évaluent le vrai corpus. La CI distante reste à raccorder.
+ci-dessous évaluent le vrai corpus. Le raccordement du runner reste à terminer.
 
 ## Dossier de relecture locale
 
@@ -310,14 +312,31 @@ Le script exact du futur job CI (`bin/evaluate-ci`) a été exécuté localement
 le candidat B : snapshot, restauration isolée, build, évaluation de la veille et
 nettoyage réussis. Le résultat reproduit le run 3. Les tests supplémentaires
 vérifient la compensation de déploiement et l'absence de textes de presse dans
-les logs publics. L'enregistrement du runner GitHub reste conditionné à
-l'authentification locale du propriétaire ; la validation locale ne remplace
-pas l'exécution distante du workflow.
+les logs publics. La validation locale ne remplace pas l'exécution du job
+d'évaluation par GitHub Actions.
 
 Le script de déploiement complet a ensuite réussi localement : réévaluation de
 la veille (run 6), redémarrage du collecteur et regroupement de vérification
 (run 7 : 357 articles, 21 thèmes, verdict candidat et publication effective).
-La production active est B. La connexion du plugin GitHub refuse la création
-d'objets Git avec HTTP 403 ; une authentification GitHub CLI du propriétaire
-est donc nécessaire avant publication et enregistrement du runner. La protection
-`Protect main` impose aussi une approbation indépendante et les contrôles CI.
+La production active est B. La connexion du plugin GitHub refuse les écritures
+avec HTTP 403 ; GitHub CLI a donc été authentifié par le propriétaire et la
+[PR nº 9](https://github.com/Tristan-Bourhis/Projet-M2Ops_La-Gazette/pull/9) est ouverte.
+La protection `Protect main` impose une approbation indépendante et les contrôles CI.
+
+## Activation GitHub préparée
+
+La configuration suivante est préparée ; son application attend l'autorisation
+explicite du propriétaire après le refus du contrôle automatique d'autorisation :
+
+- Runner `gazette-tristan-local`, label `gazette-production`, dans `output/runner`,
+  exécuté avec le compte local et son accès Docker. Le service utilisateur systemd
+  est décrit par `infra/gazette-runner.service.in` ; démarrage à l'ouverture de session.
+- Ajout du contrôle obligatoire `Évaluation hier` à `Protect main`, en conservant
+  l'approbation indépendante, les deux contrôles existants et l'interdiction de force push.
+- Environnement `production` limité aux branches protégées.
+- Approbation d'un mainteneur pour les workflows de toutes les contributions externes
+  (`all_external_contributors`). L'évaluation locale reste réservée aux PR internes.
+
+L'auto-merge n'est pas modifié. L'enregistrement du runner et ces réglages restent
+distincts de la publication du code. Garder le poste allumé, connecté et la session
+ouverte tant que ce poste héberge temporairement la production et le runner.
