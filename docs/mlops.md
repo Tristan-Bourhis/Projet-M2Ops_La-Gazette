@@ -313,3 +313,11 @@ vérifient la compensation de déploiement et l'absence de textes de presse dans
 les logs publics. L'enregistrement du runner GitHub reste conditionné à
 l'authentification locale du propriétaire ; la validation locale ne remplace
 pas l'exécution distante du workflow.
+
+Le script de déploiement complet a ensuite réussi localement : réévaluation de
+la veille (run 6), redémarrage du collecteur et regroupement de vérification
+(run 7 : 357 articles, 21 thèmes, verdict candidat et publication effective).
+La production active est B. La connexion du plugin GitHub refuse la création
+d'objets Git avec HTTP 403 ; une authentification GitHub CLI du propriétaire
+est donc nécessaire avant publication et enregistrement du runner. La protection
+`Protect main` impose aussi une approbation indépendante et les contrôles CI.
