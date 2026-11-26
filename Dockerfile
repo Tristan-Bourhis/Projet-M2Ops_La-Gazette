@@ -42,7 +42,7 @@ RUN /opt/venv/bin/pip install --no-cache-dir -r requirements-dev.lock
 COPY pyproject.toml ./
 COPY src ./src
 COPY tests ./tests
-COPY bin/check ./bin/check
+COPY bin ./bin
 USER 10001:10001
 CMD ["sh", "bin/check"]
 

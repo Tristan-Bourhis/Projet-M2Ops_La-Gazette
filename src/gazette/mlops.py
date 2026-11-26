@@ -62,7 +62,13 @@ def main():
             if args.window == "latest":
                 end = datetime.now(UTC)
             result = run_themes(
-                PostgresThemeStore(conn), encoder, config, end, policy=policy, publish=False
+                PostgresThemeStore(conn),
+                encoder,
+                config,
+                end,
+                policy=policy,
+                publish=False,
+                started_at=datetime.now(UTC),
             )
             print(json.dumps(result, default=str, ensure_ascii=False))
             if result["evaluation"]["verdict"] != "candidat":

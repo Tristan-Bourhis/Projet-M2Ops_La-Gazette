@@ -170,6 +170,7 @@ def run_themes(
     cluster: Clusterer = bertopic_cluster,
     policy: dict | None = None,
     publish: bool = True,
+    started_at: datetime | None = None,
 ) -> dict:
     """Un run complet et tracé : fenêtre -> embeddings -> regroupement -> nommage -> stockage.
 
@@ -179,7 +180,7 @@ def run_themes(
     modele = model_key(config)
     run_id = store.start_run(
         {
-            "lance_le": now,
+            "lance_le": started_at or now,
             "fenetre_debut": now - WINDOW,
             "fenetre_fin": now,
             "nb_articles": len(articles),

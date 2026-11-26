@@ -1,0 +1,36 @@
+#!/bin/sh
+set -eu
+# Clone jetable : aucun port PostgreSQL ouvert sur le poste, aucune écriture CI en production.
+project="${GAZETTE_PROJECT:-projetm2ops}"
+name="gazette-evaluation-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}"
+image="${EVALUATION_IMAGE:-gazette-candidate:$name}"
+snapshot="$(mktemp)"
+cleanup() {
+  docker rm -f "$name" >/dev/null 2>&1 || true
+  docker network rm "$name" >/dev/null 2>&1 || true
+  rm -f "$snapshot"
+}
+trap cleanup EXIT HUP INT TERM
+# Le clone garde l'historique quotidien nécessaire au contrôle de dérive.
+docker exec "${project}-postgres-1" pg_dump -U gazette -d gazette \
+  --no-owner --no-acl > "$snapshot"
+docker build --target final -t "$image" .
+docker network create "$name" >/dev/null
+docker run -d --name "$name" --network "$name" \
+  -e POSTGRES_USER=gazette -e POSTGRES_PASSWORD=ci-isolated \
+  -e POSTGRES_DB=gazette_evaluation postgres:17-bookworm >/dev/null
+ready=0
+for attempt in $(seq 1 30); do
+  if docker exec "$name" pg_isready -U gazette -d gazette_evaluation >/dev/null 2>&1; then
+    ready=1
+    break
+  fi
+  sleep 1
+done
+test "$ready" = 1
+docker exec -i "$name" psql -v ON_ERROR_STOP=1 -U gazette -d gazette_evaluation \
+  < "$snapshot" >/dev/null
+# L'exécution conserve toujours la fenêtre UTC d'hier. Aucun repli sur aujourd'hui.
+docker run --rm --network "$name" \
+  -e DATABASE_URL="postgresql://gazette:ci-isolated@$name:5432/gazette_evaluation" \
+  "$image" python -m gazette.mlops evaluate > evaluation.jsonl

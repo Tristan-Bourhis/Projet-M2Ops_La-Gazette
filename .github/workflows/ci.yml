@@ -85,28 +85,53 @@ jobs:
         if: always() && github.event_name == 'push'
         run: docker logout ghcr.io
 
-  evaluation:
-    name: Évaluation hier
-    if: github.event_name == 'pull_request'
+  evaluation-local:
+    name: Calcul des métriques sur les données d’hier
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     needs: quality
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gazette-production]
     timeout-minutes: 30
+    concurrency:
+      group: gazette-local
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v6
-      - name: Construire le candidat
-        run: docker build --target final -t gazette-candidate .
-      - name: Évaluer sur la copie CI des données d'hier
-        env:
-          DATABASE_URL: ${{ secrets.EVALUATION_DATABASE_URL }}
+        with:
+          persist-credentials: false
+      - name: Évaluer dans une copie PostgreSQL jetable
+        run: sh bin/evaluate-ci
+      - name: Résumé public sans textes de presse
+        if: always()
         run: |
-          test -n "$DATABASE_URL"
-          docker run --rm -e DATABASE_URL gazette-candidate \
-            python -m gazette.mlops evaluate > evaluation.json
+          python3 - <<'PYCODE'
+          import json
+          from pathlib import Path
+          path = Path('evaluation.jsonl')
+          if path.exists() and path.stat().st_size:
+              run = json.loads(path.read_text().splitlines()[0])
+              report = {k: run[k] for k in ('run_id', 'nb_articles', 'metriques')}
+              report['evaluation'] = {k: v for k, v in run['evaluation'].items() if k != 'echantillon'}
+              Path('evaluation-resume.json').write_text(json.dumps(report, ensure_ascii=False, indent=2))
+          PYCODE
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: evaluation-hier
-          path: evaluation.json
+          path: evaluation-resume.json
+      - name: Nettoyer le corpus du workspace
+        if: always()
+        run: rm -f evaluation.jsonl
+
+  evaluation:
+    name: Évaluation hier
+    if: always() && github.event_name == 'pull_request'
+    needs: [quality, evaluation-local]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Exiger une évaluation réelle réussie
+        env:
+          RESULT: ${{ needs.evaluation-local.result }}
+        run: test "$RESULT" = success
 
   deploy-model:
     name: Promotion et déploiement
@@ -115,7 +140,7 @@ jobs:
     runs-on: [self-hosted, gazette-production]
     environment: production
     concurrency:
-      group: gazette-production
+      group: gazette-local
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v6

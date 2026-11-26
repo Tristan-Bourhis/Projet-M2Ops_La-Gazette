@@ -17,3 +17,7 @@ output/
 articles_bruts/
 rapports/
 *.tgz
+
+# Évaluation CI : corpus local et rapport temporaire
+/evaluation.jsonl
+/evaluation-resume.json

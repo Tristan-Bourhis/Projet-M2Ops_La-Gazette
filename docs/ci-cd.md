@@ -13,3 +13,9 @@ Depuis le cycle modèle, deux jobs complètent ce circuit : `Évaluation hier` s
 PR, et `Promotion et déploiement` après merge sur la branche par défaut. Voir
 `docs/mlops.md` pour les secrets, le runner, les données CI et les commandes de
 retour arrière. Le point 10 ci-dessus décrit l'état historique du TD 2.
+
+Le job d'évaluation TD 6 utilise désormais le runner local : copie jetable de
+PostgreSQL à chaque PR interne, évaluation de la veille, puis destruction du clone.
+Aucune base distante ni secret de connexion n'est nécessaire. Seul le résumé
+numérique est publié dans les artefacts GitHub. La mise en service du runner exige
+une authentification GitHub disposant du droit d'administration du dépôt.

@@ -8,7 +8,7 @@ modele:
 graine: 42   # UMAP est aléatoire : même graine + mêmes articles = mêmes thèmes
 
 umap:                  # réduction 384 -> 5 dimensions, voisinages calculés en cosinus
-  n_neighbors: 15
+  n_neighbors: 10  # voisinage plus local : évite le groupe géant observé sur la veille
   n_components: 5
   min_dist: 0.0
   metric: cosine

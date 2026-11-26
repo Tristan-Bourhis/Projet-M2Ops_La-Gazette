@@ -1,11 +1,40 @@
 #!/bin/sh
 set -eu
-# Runner dédié, checkout du commit validé ; aucun secret en argument de commande.
+project="${GAZETTE_PROJECT:-projetm2ops}"
 actor="${GITHUB_ACTOR:?Auteur CI requis}"
-docker compose -p "${GAZETTE_PROJECT:-projetm2ops}" up -d --wait postgres prefect-server
-docker compose -p "${GAZETTE_PROJECT:-projetm2ops}" build collecteur
-# Une évaluation recalée interrompt ce script avant toute promotion ou relance.
-docker compose -p "${GAZETTE_PROJECT:-projetm2ops}" run --rm --no-deps collecteur \
-  python -m gazette.mlops evaluate --promote --actor "$actor"
-docker compose -p "${GAZETTE_PROJECT:-projetm2ops}" up -d --no-deps collecteur
-docker compose -p "${GAZETTE_PROJECT:-projetm2ops}" exec -T collecteur python -m gazette.mlops status
+report="$(mktemp)"
+trap 'rm -f "$report"' EXIT HUP INT TERM
+compose() { docker compose -p "$project" "$@"; }
+compose up -d --wait postgres prefect-server
+previous="$(compose exec -T postgres psql -U gazette -d gazette -Atc \
+  "SELECT version FROM versions_modele WHERE statut = 'production'")"
+old_image="$(docker inspect --format '{{.Image}}' "$project-collecteur-1" 2>/dev/null || true)"
+compose build collecteur
+# Réévaluation de la veille sur le commit fusionné. Les textes restent sur le poste.
+compose run --rm --no-deps collecteur \
+  python -m gazette.mlops evaluate --promote --actor "$actor" > "$report"
+python3 - "$report" <<'PY'
+import json
+import sys
+from pathlib import Path
+run = json.loads(Path(sys.argv[1]).read_text().splitlines()[0])
+print(json.dumps({k: run[k] for k in ('run_id', 'nb_articles', 'metriques')}))
+print('Version promue :', run['evaluation']['version'])
+PY
+# Vérification du chemin réel après relance : paramètres relus dans le registre.
+if compose up -d --no-deps collecteur && \
+   compose exec -T collecteur python -c \
+     'from gazette.themes import run_daily_themes; r=run_daily_themes(); print(r["run_id"], r["evaluation"]["verdict"]); raise SystemExit(0 if r["evaluation"]["verdict"] == "candidat" else 1)'; then
+  compose exec -T collecteur python -m gazette.mlops status
+else
+  echo 'Déploiement en échec : restauration de la version et de l’image précédentes.' >&2
+  if [ -n "$previous" ]; then
+    compose run --rm --no-deps collecteur python -m gazette.mlops promote \
+      --version "$previous" --actor "$actor:compensation-deploiement"
+  fi
+  if [ -n "$old_image" ]; then
+    docker tag "$old_image" "$project-collecteur:latest"
+    compose up -d --no-deps --no-build collecteur
+  fi
+  exit 1
+fi

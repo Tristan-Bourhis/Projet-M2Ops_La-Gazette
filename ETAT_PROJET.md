@@ -11,7 +11,7 @@ Dernière mise à jour : 26 novembre 2026 (reprise locale du TD 6).
 | 3 | Collecte | Terminé | PR #3 et PR de finitions, collecte Prefect toutes les 30 min, `docs/donnees.md`, `docs/exploitation.md` |
 | 4 | Qualité | Terminé (PR #7 fusionnée) | `docs/qualite.md`, migrations 002-003, alerte Discord déclenchée le 22/10 |
 | 5 | MLOps 1 | Terminé, en revue | `docs/mlops.md`, migration 004, flow `themes-du-jour` (6 h 30), run de référence n° 5 du 23/10 |
-| 6 | MLOps 2 | Implémenté, validation réelle en cours | `docs/mlops.md`, migration 005, registre et rollback testés ; run 2 relu par Tristan, 8/10 validés, 2 réserves |
+| 6 | MLOps 2 | Implémenté, validation réelle en cours | `docs/mlops.md`, migration 005, production locale B active ; retour arrière réel B→A→B exécuté ; relecture enregistrée ; raccordement GitHub en cours |
 | 7 | Livraison | À faire | — |
 | 8 | Monitoring | À faire | — |
 | 9 | IaC | À faire | — |

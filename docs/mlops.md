@@ -61,21 +61,27 @@ SELECT * FROM promotions_modele ORDER BY id DESC;
    promeut uniquement s'il passe, puis relance le collecteur. L'auteur GitHub est tracé.
    La réévaluation au merge évite de promouvoir aveuglément un ancien résultat de PR.
 
-**Configuration externe nécessaire, non créée par le code :**
+**Installation locale de la CI :**
 
-- Un secret GitHub `EVALUATION_DATABASE_URL` vers une **copie dédiée** des données
-  propres et des runs quotidiens, rafraîchie chaque jour. Cette base doit être
-  accessible au runner hébergé et accepter migrations et écritures des essais.
-  Ne pas fournir la base de production aux PR. Sans secret, l'évaluation échoue.
-- Un runner dédié portant les labels `self-hosted`, `gazette-production`, Docker
-  et Compose, sur la machine qui héberge la collecte ; environnement GitHub `production`.
-  Il n'exécute que les commits fusionnés, jamais les PR.
-- Une protection de la branche imposant revue et jobs `Lint et tests` et
-  `Évaluation hier` réussis. Les PR de forks sans accès au secret doivent être
-  reprises sur une branche interne après revue, sans utiliser `pull_request_target`.
-- Le script utilise le projet Compose **projetm2ops**. Pour reprendre un déploiement
-  existant, adapter ce nom à celui de ses volumes avant la première exécution,
-  sinon une base vide serait créée. Le premier candidat accepté initialise le registre.
+- Un runner GitHub dédié à ce dépôt porte les labels `self-hosted` et
+  `gazette-production`. Il tourne sur le poste de collecte, avec accès à Docker.
+- Le job `evaluation-local` s'exécute seulement pour les PR internes au dépôt.
+  `bin/evaluate-ci` exporte un snapshot transactionnel de la base locale,
+  le restaure dans un PostgreSQL jetable sans port exposé, construit le candidat
+  puis évalue la journée UTC d'hier. Le clone est détruit même en cas d'échec.
+  Aucune connexion CI ne modifie la base de collecte.
+- Le job obligatoire `Évaluation hier` échoue si l'évaluation réelle échoue ou
+  est ignorée. Une PR externe doit être reprise sur une branche interne après revue.
+  Les contributions externes doivent être soumises à l'approbation d'exécution
+  des workflows GitHub ; le runner local n'est pas destiné au code non approuvé.
+- L'artefact public ne contient que métriques, politique et verdict. Le corpus,
+  les titres et l'échantillon restent sur le poste.
+- Évaluation et déploiement partagent un groupe de concurrence : une opération
+  locale de CI à la fois. Le déploiement s'exécute sur la branche par défaut,
+  dans l'environnement `production`.
+- Le script utilise `projetm2ops` (surcharge `GAZETTE_PROJECT`) pour retrouver les
+  volumes existants. Aucune base distante, aucun secret `EVALUATION_DATABASE_URL`
+  et aucune synchronisation nocturne ne sont nécessaires.
 
 Le déploiement conserve les encodeurs dans `/data/modeles` sur le volume du
 collecteur. Chaque image y ajoute sa révision embarquée au démarrage, ce qui permet
@@ -84,8 +90,9 @@ Le changement est actif au démarrage du prochain run, sans relecture du YAML lo
 Un run déjà engagé termine avec les paramètres qu'il avait lus.
 
 La bascule du registre est atomique ; la relance Docker est une opération distincte.
-Si cette relance échoue après promotion, utiliser le rollback ci-dessous puis
-rétablir le conteneur. La CI ne prouve pas à elle seule la santé du service Prefect.
+Après relance, le script exécute un regroupement réel en relisant la production.
+En cas d'échec, il restaure la version et l'image précédentes, avec une action
+`compensation-deploiement` tracée, puis fait échouer le job.
 
 ## Relecture humaine enregistrée
 
@@ -277,3 +284,32 @@ n'est pas appliquée automatiquement aux articles en bruit. Les thèmes calculé
 les métriques et le verdict historique restent intacts. Une rubrique éditoriale
 peut compléter le regroupement, avec une attribution explicite et tracée ; sa
 création ne doit pas être présentée comme un groupe découvert par HDBSCAN.
+
+## Mise en service et retour arrière réels — 26 novembre 2026
+
+La version A `95275f0d5587…` a été promue pour l'amorçage local après la relecture
+de Tristan. Le flow Prefect `11512db3-750a-484a-a9eb-ca8973f25841` a produit
+le run 4, accepté et publié : le pipeline lit effectivement le registre.
+
+Une modification unique et motivée a ensuite été évaluée : UMAP passe de 15
+à 10 voisins pour mieux séparer les sujets dans le petit corpus de la veille.
+Aucun seuil n'est modifié et aucune recherche automatique n'est exécutée.
+Le run 3 sur les mêmes 85 articles d'hier passe : 2 groupes, bruit 32,9 %,
+silhouette 0,088 et plus grand groupe 42,35 %. Version B :
+`283e984d1bf56dae3a40745054e8de515ddb04ee3fb74cfaa868717761865b1d`.
+
+Le registre local contient les événements 1 à 4 : initialisation A, promotion B,
+rollback B→A, rollback A→B. Les commandes CLI ont été exécutées sur la base
+de collecte, pas uniquement dans les tests. Le run 5 après restauration de B
+a publié 21 thèmes pour 332 articles, silhouette 0,179, bruit 26,2 %, plus grand
+groupe 9,04 %. Traces locales : `output/rollback-reel.txt` et
+`output/production-apres-rollback.log`. L'amorçage et cette démonstration locale
+ne sont pas présentés comme une promotion effectuée par GitHub Actions.
+
+Le script exact du futur job CI (`bin/evaluate-ci`) a été exécuté localement avec
+le candidat B : snapshot, restauration isolée, build, évaluation de la veille et
+nettoyage réussis. Le résultat reproduit le run 3. Les tests supplémentaires
+vérifient la compensation de déploiement et l'absence de textes de presse dans
+les logs publics. L'enregistrement du runner GitHub reste conditionné à
+l'authentification locale du propriétaire ; la validation locale ne remplace
+pas l'exécution distante du workflow.

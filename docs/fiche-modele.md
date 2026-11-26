@@ -14,7 +14,8 @@ L'empreinte des identifiants et textes et la fenêtre sont enregistrées sur cha
 Encodeur : `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`, révision
 `e8f8c211226b894fcb81acc59f3b34ba3efd5f42`, CPU. UMAP réduit les embeddings en
 5 dimensions ; HDBSCAN identifie les groupes ; c-TF-IDF extrait leurs mots-clés.
-Graine initiale : 42. Les paramètres exacts en service sont ceux du registre.
+Graine initiale : 42. Le candidat TD 6 utilise 10 voisins UMAP, après un essai
+manuel motivé par le groupe géant observé dans les données de la veille. Les paramètres exacts en service sont ceux du registre.
 Le regroupement est ajusté chaque jour ; l'encodeur préentraîné n'est pas réentraîné.
 
 ## Évaluation et décisions

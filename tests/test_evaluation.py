@@ -57,3 +57,11 @@ def test_rejected_and_ci_runs_do_not_publish():
 
 def test_singletons_have_undefined_silhouette():
     assert metrics([0, 1], [[1.0, 0.0], [0.0, 1.0]])["silhouette"] is None
+
+
+def test_historical_evaluation_keeps_execution_time_separate_from_data_window():
+    store = MemoryThemeStore(articles())
+    started = NOW + timedelta(days=1)
+    run_themes(store, encoder, CONFIG, NOW, cluster=fake_cluster, publish=False, started_at=started)
+    assert store.runs[1]["lance_le"] == started
+    assert store.runs[1]["fenetre_fin"] == NOW
