@@ -28,12 +28,14 @@ def conn(tmp_path):
         pytest.fail("TEST_DATABASE_URL doit viser une base dont le nom finit par _test.")
     with connect(URL) as connection:
         connection.execute(
-            "DROP TABLE IF EXISTS articles_themes, themes, runs, embeddings, rejets,"
+            "DROP TABLE IF EXISTS relectures_modele, promotions_modele, versions_modele,"
+            " articles_themes, themes, runs, embeddings, rejets,"
             " articles_propres, controles_qualite, sources, schema_migrations"
         )
         yield connection
         connection.execute(
-            "DROP TABLE IF EXISTS articles_themes, themes, runs, embeddings, rejets,"
+            "DROP TABLE IF EXISTS relectures_modele, promotions_modele, versions_modele,"
+            " articles_themes, themes, runs, embeddings, rejets,"
             " articles_propres, controles_qualite, sources, schema_migrations"
         )
 
@@ -49,6 +51,7 @@ def test_migrations_are_applied_once(conn):
         "002_creer_tables_nettoyage.sql",
         "003_alerte_envoyee.sql",
         "004_creer_tables_themes.sql",
+        "005_cycle_modele.sql",
     ]
     assert migrate(conn, MIGRATIONS) == []
 
@@ -251,3 +254,82 @@ def test_run_themes_on_postgres(conn):
         (result["run_id"],),
     ).fetchone()["n"]
     assert noise == 4
+
+    from gazette.evaluation import load_policy
+
+    policy = load_policy()
+    policy["seuils"]["silhouette_min"] = 1.1
+    rejected = run_themes(
+        PostgresThemeStore(conn), encoder, config, NOW, cluster=cluster, policy=policy
+    )
+    assert rejected["evaluation"]["verdict"] == "recale"
+    assert conn.execute("SELECT count(*) AS n FROM themes").fetchone()["n"] == 2
+    assert conn.execute("SELECT count(*) AS n FROM articles_themes").fetchone()["n"] == 16
+    row = conn.execute(
+        "SELECT publie, evaluation FROM runs WHERE id = %s", (rejected["run_id"],)
+    ).fetchone()
+    assert row["publie"] is False
+    assert row["evaluation"]["verdict"] == "recale"
+
+
+def test_registry_roundtrip_and_review(conn):
+    import json
+    import subprocess
+    import sys
+
+    from psycopg.types.json import Jsonb
+
+    from gazette.evaluation import load_policy
+    from gazette.registry import Registry
+
+    migrate(conn, MIGRATIONS)
+    registry = Registry(conn)
+    policy = load_policy()
+
+    def candidate(seed):
+        config = {"graine": seed}
+        evaluation = {
+            "verdict": "candidat",
+            "politique": policy,
+            "echantillon": [{"article_id": str(i)} for i in range(10)],
+        }
+        run = conn.execute(
+            "INSERT INTO runs(lance_le, termine_le, fenetre_debut, fenetre_fin, nb_articles,"
+            " hash_entree, modele, parametres, evaluation)"
+            " VALUES (%s, %s, %s, %s, 10, 'hash', 'm@1', %s, %s) RETURNING id",
+            (NOW, NOW, NOW, NOW, Jsonb(config), Jsonb(evaluation)),
+        ).fetchone()["id"]
+        return registry.candidate(run, config, policy), run
+
+    a, run = candidate(42)
+    b, _ = candidate(43)
+    registry.activate(a, "test-ci")
+    registry.activate(b, "test-ci")
+    assert registry.production()["version"] == b
+
+    def rollback(actor):
+        completed = subprocess.run(
+            [sys.executable, "-m", "gazette.mlops", "rollback", "--actor", actor],
+            env=os.environ | {"DATABASE_URL": URL},
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return json.loads(completed.stdout)
+
+    assert rollback("test-rollback") == a
+    assert registry.production()["parametres"] == {"graine": 42}
+    assert rollback("test-retour") == b
+    assert registry.production()["version"] == b
+    assert conn.execute("SELECT count(*) AS n FROM promotions_modele").fetchone()["n"] == 4
+    with pytest.raises(ValueError):
+        registry.activate("inconnu", "test")
+    assert registry.production()["version"] == b
+    reviews = [
+        {"article_id": str(i), "bien_place": True, "commentaire": "test synthétique"}
+        for i in range(10)
+    ]
+    registry.review(run, "test-humain-simule", reviews)
+    with pytest.raises(ValueError):
+        registry.review(run, "test", reviews[:9])
+    assert conn.execute("SELECT count(*) AS n FROM relectures_modele").fetchone()["n"] == 1

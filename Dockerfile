@@ -30,6 +30,7 @@ COPY --from=builder /opt/hf /opt/hf
 COPY sources.csv ./
 COPY config ./config
 COPY migrations ./migrations
+COPY bin/start-model ./bin/start-model
 COPY tests/fixtures/ouest-france.xml ./tests/fixtures/ouest-france.xml
 USER 10001:10001
 CMD ["python", "-m", "gazette"]
@@ -41,7 +42,7 @@ RUN /opt/venv/bin/pip install --no-cache-dir -r requirements-dev.lock
 COPY pyproject.toml ./
 COPY src ./src
 COPY tests ./tests
-COPY bin/check ./bin/check
+COPY bin ./bin
 USER 10001:10001
 CMD ["sh", "bin/check"]
 

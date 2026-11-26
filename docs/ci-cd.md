@@ -8,3 +8,14 @@
 8. Chaque push publie cette même image sur GHCR avec GITHUB_TOKEN ; les PR ne publient pas.
 9. Le tag UTC YYYYMMDDHHMMSS-sha et les labels OCI identifient le commit exact.
 10. Aucun déploiement au TD 2 ; main nécessite revue et CI verte, puis déploiement aux TD suivants.
+
+Depuis le cycle modèle, deux jobs complètent ce circuit : `Évaluation hier` sur les
+PR, et `Promotion et déploiement` après merge sur la branche par défaut. Voir
+`docs/mlops.md` pour les secrets, le runner, les données CI et les commandes de
+retour arrière. Le point 10 ci-dessus décrit l'état historique du TD 2.
+
+Le job d'évaluation TD 6 utilise désormais le runner local : copie jetable de
+PostgreSQL à chaque PR interne, évaluation de la veille, puis destruction du clone.
+Aucune base distante ni secret de connexion n'est nécessaire. Seul le résumé
+numérique est publié dans les artefacts GitHub. La mise en service du runner exige
+une authentification GitHub disposant du droit d'administration du dépôt.

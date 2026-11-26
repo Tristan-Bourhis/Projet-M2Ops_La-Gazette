@@ -1,6 +1,7 @@
 """Thèmes du jour : regroupement BERTopic des articles des dernières 24 h, nommage, run tracé."""
 
 import hashlib
+import json
 import logging
 import os
 import statistics
@@ -19,6 +20,7 @@ from gazette.embed import (
     load_encoder,
     window_articles,
 )
+from gazette.evaluation import evaluate, load_policy
 
 logger = logging.getLogger("gazette.themes")
 CONFIG = Path("config/clustering.yaml")
@@ -36,6 +38,16 @@ class MemoryThemeStore(MemoryEmbeddingStore):
         self.runs: dict[int, dict] = {}
         self.themes: list[dict] = []
         self.affectations: list[dict] = []
+
+    def evaluation_history(self):
+        return [
+            r
+            for r in self.runs.values()
+            if r.get("metriques") and r.get("evaluation", {}).get("mode") == "quotidien"
+        ]
+
+    def record_evaluation(self, run_id, evaluation, published):
+        self.runs[run_id].update(evaluation=evaluation, publie=published)
 
     def start_run(self, run):
         run_id = len(self.runs) + 1
@@ -130,7 +142,7 @@ def metrics(labels: list[int], vecteurs: list[list[float]]) -> dict:
     """Métriques du TD : thèmes, taille médiane, part de bruit, silhouette (calculée sans bruit)."""
     sizes = [labels.count(label) for label in set(labels) - {NOISE}]
     silhouette = None
-    if len(sizes) > 1:
+    if 1 < len(sizes) < sum(sizes):
         from sklearn.metrics import silhouette_score
 
         kept = [i for i, label in enumerate(labels) if label != NOISE]
@@ -156,15 +168,19 @@ def run_themes(
     config: dict,
     now: datetime,
     cluster: Clusterer = bertopic_cluster,
+    policy: dict | None = None,
+    publish: bool = True,
+    started_at: datetime | None = None,
 ) -> dict:
     """Un run complet et tracé : fenêtre -> embeddings -> regroupement -> nommage -> stockage.
 
     Le run est enregistré avant le calcul : s'il plante, il reste en base sans termine_le."""
+    policy = policy or load_policy()
     articles = window_articles(store, now)
     modele = model_key(config)
     run_id = store.start_run(
         {
-            "lance_le": now,
+            "lance_le": started_at or now,
             "fenetre_debut": now - WINDOW,
             "fenetre_fin": now,
             "nb_articles": len(articles),
@@ -175,6 +191,13 @@ def run_themes(
     )
     minimum = config["umap"]["n_neighbors"] + 1
     if len(articles) < minimum:
+        result = metrics([], []) | {"part_groupe_max": 0, "tailles_groupes": []}
+        evaluation = evaluate(result, store.evaluation_history(), now, policy)
+        evaluation.update(
+            raisons=["articles_insuffisants"], mode="quotidien" if publish else "ci", echantillon=[]
+        )
+        store.record_evaluation(run_id, evaluation, False)
+        store.finish_run(run_id, [], [], result, datetime.now(UTC))
         raise ValueError(f"{len(articles)} articles sur 24 h : il en faut au moins {minimum}.")
 
     vecteurs = list(embed_articles(store, articles, modele, encoder, now).values())
@@ -202,10 +225,52 @@ def run_themes(
         for article, label, probability in zip(articles, labels, probabilities, strict=True)
     ]
     result = metrics(labels, vecteurs)
+    result["part_groupe_max"] = max((labels.count(g) for g in groups), default=0) / len(labels)
+    result["tailles_groupes"] = [t["taille"] for t in themes]
+    evaluation = evaluate(result, store.evaluation_history(), now, policy)
+    evaluation["version"] = hashlib.sha256(
+        json.dumps([config, policy], sort_keys=True).encode()
+    ).hexdigest()
+    evaluation["mode"] = "quotidien" if publish else "ci"
+    evaluation["echantillon"] = [
+        {
+            "article_id": articles[i]["id"],
+            "titre": articles[i]["titre"],
+            "extrait": articles[i].get("extrait", ""),
+            "source": articles[i].get("source", ""),
+            "lien": articles[i].get("lien", ""),
+            "mots_cles": [] if labels[i] == NOISE else keywords[labels[i]],
+            "voisins": [
+                articles[j]["titre"]
+                for j in range(len(articles))
+                if j != i and labels[j] == labels[i]
+            ][:5]
+            if labels[i] != NOISE
+            else [],
+            "theme": None if labels[i] == NOISE else themes[index[labels[i]]]["nom"],
+        }
+        for i in sorted(range(len(articles)), key=lambda i: articles[i]["id"])[
+            : policy["relecture"]["taille"]
+        ]
+    ]
+    published = publish and evaluation["verdict"] == "candidat"
+    store.record_evaluation(run_id, evaluation, published)
     # Heure réelle de fin (now = début du run, il fixe la fenêtre) : la durée reste lisible.
-    store.finish_run(run_id, themes, affectations, result, datetime.now(UTC))
+    store.finish_run(
+        run_id,
+        themes if published else [],
+        affectations if published else [],
+        result,
+        datetime.now(UTC),
+    )
     logger.info("Run %d : %d articles, métriques %s", run_id, len(articles), result)
-    return {"run_id": run_id, "nb_articles": len(articles), "metriques": result, "themes": themes}
+    return {
+        "run_id": run_id,
+        "nb_articles": len(articles),
+        "metriques": result,
+        "themes": themes,
+        "evaluation": evaluation,
+    }
 
 
 def themes_markdown(result: dict) -> str:
@@ -214,6 +279,7 @@ def themes_markdown(result: dict) -> str:
     lines = [
         f"# Thèmes du jour — run {result['run_id']}",
         "",
+        f"Verdict : {result.get('evaluation', {}).get('verdict', 'historique')}",
         f"{result['nb_articles']} articles publiés dans les dernières 24 h ; {m['themes']} thèmes,"
         f" taille médiane {m['taille_mediane']}, bruit {m['part_bruit']:.0%},"
         f" silhouette {m['silhouette']}.",
@@ -227,7 +293,7 @@ def themes_markdown(result: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def run_daily_themes(config_path: Path = CONFIG) -> dict:
+def run_daily_themes() -> dict:
     """Run du pipeline : lit articles_propres et écrit les tables du TD 5 (DATABASE_URL requis)."""
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
@@ -236,8 +302,17 @@ def run_daily_themes(config_path: Path = CONFIG) -> dict:
         )
     from gazette.db import PostgresThemeStore, connect, migrate
 
-    config = load_config(config_path)
-    encoder = load_encoder(config["modele"]["nom"], config["modele"]["revision"])
     with connect(database_url) as conn:
         migrate(conn)
-        return run_themes(PostgresThemeStore(conn), encoder, config, datetime.now(UTC))
+        from gazette.registry import Registry
+
+        production = Registry(conn).production()
+        config = production["parametres"]
+        encoder = load_encoder(config["modele"]["nom"], config["modele"]["revision"])
+        return run_themes(
+            PostgresThemeStore(conn),
+            encoder,
+            config,
+            datetime.now(UTC),
+            policy=production["politique"],
+        )

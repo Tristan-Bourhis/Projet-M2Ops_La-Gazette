@@ -178,7 +178,7 @@ class PostgresThemeStore:
 
     def window_articles(self, start, end):
         rows = self.conn.execute(
-            "SELECT id, source, titre, extrait, publie_le FROM articles_propres"
+            "SELECT id, source, titre, extrait, lien, publie_le FROM articles_propres"
             " WHERE publie_le > %s AND publie_le <= %s ORDER BY publie_le, id",
             (start, end),
         )
@@ -198,6 +198,20 @@ class PostgresThemeStore:
                 " VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
                 [(article_id, modele, vector, at) for article_id, vector in vectors.items()],
             )
+
+    def evaluation_history(self):
+        return list(
+            self.conn.execute(
+                "SELECT fenetre_fin, metriques FROM runs WHERE termine_le IS NOT NULL"
+                " AND evaluation IS NOT NULL AND evaluation->>'mode' = 'quotidien'"
+                " ORDER BY fenetre_fin, id"
+            )
+        )
+
+    def record_evaluation(self, run_id, evaluation, published):
+        self.conn.execute(
+            "UPDATE runs SET evaluation = %s WHERE id = %s", (Jsonb(evaluation), run_id)
+        )
 
     def start_run(self, run):
         row = self.conn.execute(
@@ -234,6 +248,6 @@ class PostgresThemeStore:
                     ],
                 )
             self.conn.execute(
-                "UPDATE runs SET termine_le = %s, metriques = %s WHERE id = %s",
-                (at, Jsonb(metriques), run_id),
+                "UPDATE runs SET termine_le = %s, metriques = %s, publie = %s WHERE id = %s",
+                (at, Jsonb(metriques), bool(themes), run_id),
             )

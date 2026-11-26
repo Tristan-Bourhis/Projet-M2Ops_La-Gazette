@@ -71,9 +71,9 @@ def collecte(
 
 
 @task(name="regroupement-thematique")
-def regroupement(config: str) -> dict:
+def regroupement() -> dict:
     """Embeddings, BERTopic, nommage ; le run est tracé dans la table runs."""
-    result = run_daily_themes(Path(config))
+    result = run_daily_themes()
     create_markdown_artifact(
         key="themes-du-jour", markdown=themes_markdown(result), description="Thèmes du jour"
     )
@@ -90,15 +90,14 @@ def themes_du_jour(
     sources: str = "sources.csv",
     output: str = "/data/articles_bruts",
     rapports: str = "/data/rapports",
-    config: str = "config/clustering.yaml",
 ) -> dict:
     # Nettoyage d'abord (il ne traite que les nouveaux bruts) : on regroupe des données à jour.
     nettoyage(output, rapports, sources)
-    result = regroupement(config)
+    result = regroupement()
     get_run_logger().info(
         "Run %s : %s articles, %s", result["run_id"], result["nb_articles"], result["metriques"]
     )
-    return {k: result[k] for k in ("run_id", "nb_articles", "metriques")}
+    return {k: result[k] for k in ("run_id", "nb_articles", "metriques", "evaluation")}
 
 
 if __name__ == "__main__":

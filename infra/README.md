@@ -28,3 +28,18 @@ appliquées au début de chaque collecte, une seule fois chacune (table
 En attendant l'infrastructure de production (TD 4 ou 6), la collecte tourne sur le
 poste d'un membre de l'équipe, qui doit rester allumé : voir `ETAT_PROJET.md`.
 Le déploiement, les métriques et les tableaux de bord viendront aux prochains TD.
+
+## Runner CI local (TD 6)
+
+Le runner officiel est préparé dans `output/runner` (non versionné). Après
+l'authentification GitHub du propriétaire, son enregistrement doit utiliser les
+labels `self-hosted,gazette-production` et le dépôt `Tristan-Bourhis/Projet-M2Ops_La-Gazette`.
+Le modèle d'unité utilisateur `gazette-runner.service.in` est prévu pour maintenir
+le processus actif ; remplacer `@RUNNER_DIR@` par le chemin absolu avant installation.
+Le runner ne doit pas être annoncé opérationnel tant que GitHub ne le voit pas
+`online` et que le workflow n'a pas réellement tourné.
+
+L'évaluation utilise un clone PostgreSQL jetable ; seul le résumé numérique
+est exporté vers GitHub. La branche par défaut déploie sur les volumes `projetm2ops`
+existants. Les PR de forks ne peuvent pas satisfaire l'évaluation locale : les
+changements approuvés doivent être repris sur une branche interne.

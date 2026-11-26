@@ -14,5 +14,8 @@
 !tests/**
 !bin/
 !bin/check
+!bin/start-model
+!bin/deploy-model
+!bin/evaluate-ci
 **/__pycache__
 **/*.pyc

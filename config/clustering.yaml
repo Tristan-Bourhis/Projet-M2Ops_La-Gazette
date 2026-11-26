@@ -1,5 +1,5 @@
-# Paramètres du regroupement (TD 5). Chaque run enregistre ce contenu dans runs.parametres :
-# modifier une valeur ici, c'est changer les runs suivants, et la trace le montre.
+# Paramètres candidats : modifier par PR, évaluation CI puis promotion au merge.
+# Les runs quotidiens lisent les paramètres de production dans versions_modele.
 
 modele:
   nom: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
@@ -8,7 +8,7 @@ modele:
 graine: 42   # UMAP est aléatoire : même graine + mêmes articles = mêmes thèmes
 
 umap:                  # réduction 384 -> 5 dimensions, voisinages calculés en cosinus
-  n_neighbors: 15
+  n_neighbors: 10  # voisinage plus local : évite le groupe géant observé sur la veille
   n_components: 5
   min_dist: 0.0
   metric: cosine

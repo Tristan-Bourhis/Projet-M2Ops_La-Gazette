@@ -1,92 +1,150 @@
-# MLOps : thèmes du jour (TD 5)
+# MLOps : évaluation, registre et promotion
 
-Chaque matin, les articles propres des dernières 24 h sont regroupés en thèmes. Chaque
-exécution (un **run**) est tracée : données, paramètres, métriques, artefacts. On sait
-toujours quel run a produit les thèmes en base.
+## Pipeline quotidien
 
-## Le pipeline
+À 6 h 30 (Europe/Paris), Prefect nettoie les articles, lit **la ligne production du
+registre**, charge son encodeur et ses paramètres, puis regroupe les dernières 24 h.
+Aucun changement de fichier YAML ne modifie directement la production.
+Sans production initialisée, le pipeline s'arrête explicitement.
 
-Flow Prefect `themes-du-jour`, déploiement `themes-6h30`, **tous les jours à 6 h 30
-(Europe/Paris)**, servi par le conteneur `collecteur` à côté de la collecte (30 min) :
+Après regroupement : silhouette cosinus hors bruit, nombre et tailles des groupes,
+taille médiane, bruit et taille du plus grand groupe / nombre total d'articles.
+L'évaluation précède l'écriture des thèmes. Un verdict `recale` ou `revue` conserve
+les métriques et diagnostics sur le run et n'insère ni thème ni affectation.
+Les runs CI ne publient jamais de thèmes, même acceptés.
+Un manque d’articles est enregistré comme `recale`. Un incident de calcul laisse un run inachevé (`termine_le` NULL), donc non publié.
 
-1. **nettoyage** : rattrape les derniers articles bruts (idempotent) ;
-2. **fenêtre** : articles de `articles_propres` publiés dans les 24 h précédant le run ;
-3. **embeddings** : titre + extrait → vecteur ; seuls les absents du cache sont calculés
-   (table `embeddings`) ;
-4. **regroupement BERTopic** : UMAP (voisinages en cosinus, 384 → 5 dimensions, graine fixée)
-   puis HDBSCAN ; les articles isolés restent hors thème (bruit) ;
-5. **nommage** : mots-clés c-TF-IDF (colonne `mots_cles`) + titre de l'article le plus proche
-   du centre du groupe (colonne `nom`, plus lisible qu'une suite de mots) ;
-6. **stockage** : `runs`, `themes`, `articles_themes`, et un résumé en artefact Prefect.
+La politique versionnée dans `config/evaluation.yaml` impose : silhouette ≥ 0,05,
+bruit ≤ 60 %, au moins deux groupes, médiane ≥ 3 et plus grand groupe ≤ 50 %.
+Ces valeurs initiales s'appuient sur le run historique ci-dessous et restent à
+valider par l'équipe. La politique est copiée dans le registre et dans chaque évaluation.
 
-Le run est inséré **avant** le calcul : s'il échoue, il reste en base avec `termine_le` vide
-et ses thèmes ne comptent pas. Moins de 16 articles sur 24 h : le run s'arrête (UMAP ne
-peut pas travailler sur si peu de points).
+La dérive compare les journées UTC : bruit > 45 % ou silhouette < 0,10 pendant
+**deux jours consécutifs** déclenche `revue`. Seul le dernier run quotidien terminé
+de chaque journée est retenu, y compris les runs recalés. Les essais CI ne comptent
+pas ; une journée manquante rompt la séquence. Les garde-fous ont priorité sur
+`revue`, mais `evaluation.derive` conserve le signal. La réaction attendue est une
+relecture, puis éventuellement une PR de paramètres ou d'encodeur.
 
-Code : `src/gazette/embed.py`, `src/gazette/themes.py`, `src/gazette/flows.py`.
-Pour lancer un run sans attendre 6 h 30 : bouton *Run* du déploiement dans Prefect, ou
-`docker compose exec collecteur prefect deployment run 'themes-du-jour/themes-6h30'`.
+## Registre et consultation
 
-## Modèle et paramètres
-
-Tout est dans **`config/clustering.yaml`**, copié tel quel dans `runs.parametres` à chaque run.
-
-| Paramètre | Valeur | Pourquoi |
-|---|---|---|
-| Modèle | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | modèle multilingue par défaut de BERTopic ; léger (118 M paramètres, 384 dimensions), CPU |
-| Révision | `e8f8c211226b894fcb81acc59f3b34ba3efd5f42` | version figée : intégrée à l'image Docker au build, aucun téléchargement au run (`HF_HUB_OFFLINE=1`) |
-| `graine` | 42 | UMAP est aléatoire : même graine + mêmes articles = mêmes thèmes |
-| `umap` | 15 voisins, 5 dimensions, cosinus | réduit la dimension : HDBSCAN seul sur 384 dimensions met ~70 % des articles en bruit |
-| `hdbscan.min_cluster_size` | 5 | taille minimale d'un thème |
-| `hdbscan.min_samples` | 5 | exigence de densité : plus haut = plus de bruit |
-| `mots_cles` | 5 mots, ≥ 3 lettres, mots vides français + mois et jours | sans eux, « de », « 17 », « octobre » sortaient comme mots-clés |
-
-**Changer un paramètre** : modifier le YAML, reconstruire l'image
-(`docker compose up -d --build collecteur`). Les runs suivants portent la nouvelle valeur.
-**Changer de modèle** : modifier `nom` et `revision` ; le cache est indexé par
-`nom@revision`, les anciens vecteurs ne sont jamais réutilisés.
-
-## Ce qu'un run trace
-
-| Demandé par le TD | Où |
-|---|---|
-| Fenêtre de données | `runs.fenetre_debut`, `fenetre_fin`, `nb_articles` |
-| Hash de l'entrée | `runs.hash_entree` : sha256 des (id, texte lu par le modèle) triés ; un article au texte modifié change le hash (depuis le run 6 ; avant : id seuls) |
-| Modèle et version | `runs.modele` (`nom@revision`) |
-| Paramètres | `runs.parametres` (jsonb, contenu du YAML) |
-| Versions des bibliothèques | `runs.parametres->'bibliotheques'` : bertopic, umap-learn, hdbscan, scikit-learn, sentence-transformers, torch (depuis le run 6). Une mise à jour peut changer les thèmes sans qu'aucun paramètre ne bouge ; les versions sont aussi figées dans `requirements.lock` |
-| Métriques | `runs.metriques` : `themes`, `taille_mediane`, `part_bruit`, `silhouette` (cosinus, calculée sans le bruit) |
-| Artefacts | `themes` (nom, mots-clés, taille), `articles_themes` (affectation et probabilité ; `theme_id` vide = bruit) |
-| Durée | `termine_le - lance_le` |
-
-## Où regarder
-
-**Prefect** (http://127.0.0.1:4200) : *Deployments* → `themes-6h30` → un run → onglet
-*Artifacts* : `themes-du-jour` (tableau des thèmes) et `metriques-themes`.
-
-**PostgreSQL** (`docker compose exec postgres psql -U gazette -d gazette`) :
+Migration `005_cycle_modele.sql`. `versions_modele` contient version (SHA-256 des
+paramètres et de la politique), run validant, paramètres, politique, statut,
+date et auteur de promotion. Un index garantit une seule production. Les bascules
+utilisent une transaction et un verrou PostgreSQL ; `promotions_modele` garde
+l'historique, y compris le retour arrière. Une même configuration est idempotente.
 
 ```sql
--- Les derniers runs, leur durée et leurs métriques
-SELECT id, lance_le, termine_le - lance_le AS duree, nb_articles, left(hash_entree, 12) AS hash,
-       metriques
-FROM runs ORDER BY id DESC LIMIT 10;
+SELECT version, run_id, parametres, politique, promue_le, par_qui
+FROM versions_modele WHERE statut = 'production';
 
--- Les thèmes en base et le run qui les a produits (dernier run terminé)
-SELECT t.taille, t.mots_cles, t.nom, r.id AS run_id, r.modele, r.parametres
-FROM themes t JOIN runs r ON r.id = t.run_id
-WHERE r.id = (SELECT max(id) FROM runs WHERE termine_le IS NOT NULL)
-ORDER BY t.taille DESC;
+SELECT id, fenetre_fin, metriques, evaluation->>'verdict' AS verdict,
+       evaluation->'derive' AS derive, publie FROM runs ORDER BY id DESC LIMIT 10;
 
--- Les articles d'un thème
-SELECT a.source, a.titre, x.probabilite
-FROM articles_themes x JOIN articles_propres a ON a.id = x.article_id
-WHERE x.theme_id = :theme_id ORDER BY x.probabilite DESC;
+-- Derniers thèmes réellement publiés, même si un essai CI s'est terminé depuis.
+SELECT t.* FROM themes t WHERE run_id =
+  (SELECT id FROM runs WHERE publie AND termine_le IS NOT NULL ORDER BY id DESC LIMIT 1);
 
--- Les articles en bruit d'un run
-SELECT a.source, a.titre FROM articles_themes x JOIN articles_propres a ON a.id = x.article_id
-WHERE x.run_id = :run_id AND x.theme_id IS NULL;
+SELECT * FROM promotions_modele ORDER BY id DESC;
 ```
+
+## Circuit CI et installation initiale
+
+1. Modifier `config/clustering.yaml` ou `config/evaluation.yaml` dans une PR.
+2. Le job **Évaluation hier** construit l'image candidate et exécute
+   `python -m gazette.mlops evaluate` sur la journée UTC d'hier. La base CI reçoit
+   métriques, échantillon et candidat ; l'artefact `evaluation-hier` garde le résultat.
+   Une absence de données suffisantes ou un verdict défavorable fait échouer le job.
+3. Le responsable relit l'échantillon et les résultats, puis fusionne la PR.
+4. Le push sur la branche par défaut passe les tests et le build. Sur le runner dédié,
+   `bin/deploy-model` construit le commit fusionné, le réévalue avec la base locale,
+   promeut uniquement s'il passe, puis relance le collecteur. L'auteur GitHub est tracé.
+   La réévaluation au merge évite de promouvoir aveuglément un ancien résultat de PR.
+
+**Installation locale de la CI :**
+
+- Un runner GitHub dédié à ce dépôt porte les labels `self-hosted` et
+  `gazette-production`. Il tourne sur le poste de collecte, avec accès à Docker.
+- Le job `evaluation-local` s'exécute seulement pour les PR internes au dépôt.
+  `bin/evaluate-ci` exporte un snapshot transactionnel de la base locale,
+  le restaure dans un PostgreSQL jetable sans port exposé, construit le candidat
+  puis évalue la journée UTC d'hier. Le clone est détruit même en cas d'échec.
+  Aucune connexion CI ne modifie la base de collecte.
+- Le job obligatoire `Évaluation hier` échoue si l'évaluation réelle échoue ou
+  est ignorée. Une PR externe doit être reprise sur une branche interne après revue.
+  Les contributions externes doivent être soumises à l'approbation d'exécution
+  des workflows GitHub ; le runner local n'est pas destiné au code non approuvé.
+- L'artefact public ne contient que métriques, politique et verdict. Le corpus,
+  les titres et l'échantillon restent sur le poste.
+- Évaluation et déploiement partagent un groupe de concurrence : une opération
+  locale de CI à la fois. Le déploiement s'exécute sur la branche par défaut,
+  dans l'environnement `production`.
+- Le script utilise `projetm2ops` (surcharge `GAZETTE_PROJECT`) pour retrouver les
+  volumes existants. Aucune base distante, aucun secret `EVALUATION_DATABASE_URL`
+  et aucune synchronisation nocturne ne sont nécessaires.
+
+Le déploiement conserve les encodeurs dans `/data/modeles` sur le volume du
+collecteur. Chaque image y ajoute sa révision embarquée au démarrage, ce qui permet
+le retour au précédent encodeur hors ligne. Ne pas supprimer ce volume.
+Le changement est actif au démarrage du prochain run, sans relecture du YAML local.
+Un run déjà engagé termine avec les paramètres qu'il avait lus.
+
+La bascule du registre est atomique ; la relance Docker est une opération distincte.
+Après relance, le script exécute un regroupement réel en relisant la production.
+En cas d'échec, il restaure la version et l'image précédentes, avec une action
+`compensation-deploiement` tracée, puis fait échouer le job.
+
+## Relecture humaine enregistrée
+
+Chaque run évalué conserve dix articles (ordre déterministe des identifiants), leur
+titre, extrait, source et le nom du thème proposé, y compris le bruit. Exporter l'échantillon :
+
+```sql
+SELECT evaluation->'echantillon' FROM runs WHERE id = 123;
+```
+
+Créer `relecture.json`, un tableau contenant exactement ces dix identifiants :
+
+```json
+[{"article_id": "identifiant", "bien_place": true, "commentaire": "Même événement que le thème"}]
+```
+
+L'exemple montre un élément ; il en faut dix. Le jugement doit venir d'une personne.
+Puis, dans un environnement avec `DATABASE_URL` et le fichier disponible :
+
+```sh
+python -m gazette.mlops review --run 123 --actor prenom --file relecture.json
+```
+
+La table `relectures_modele` conserve auteur, date et résultats ; une nouvelle
+relecture ajoute une trace. Une relecture ne transforme pas un run recalé en candidat.
+
+## Retour arrière
+
+Dans le conteneur en service (adapter le nom de projet Compose si nécessaire) :
+
+```sh
+docker compose -p projetm2ops exec collecteur python -m gazette.mlops status
+docker compose -p projetm2ops exec collecteur python -m gazette.mlops rollback --actor prenom
+docker compose -p projetm2ops exec collecteur python -m gazette.mlops status
+# La version précédente est maintenant celle qui était actuelle : retour à l'actuelle.
+docker compose -p projetm2ops exec collecteur python -m gazette.mlops rollback --actor prenom
+```
+
+Le rollback vise la version précédant la dernière bascule. Sans précédente, il échoue
+sans modification. Pour une version précise déjà validée :
+`python -m gazette.mlops promote --version SHA256 --actor prenom` (opération de secours).
+Le compte ayant accès en écriture au registre est donc un compte privilégié.
+
+Test effectué sur PostgreSQL 17 isolé : `test_registry_roundtrip_and_review` crée
+A (graine 42), puis B (43), promeut A puis B, exécute la commande CLI de rollback vers A puis vers B. Les paramètres
+et les quatre événements sont vérifiés. Cela valide le registre sur une vraie base,
+pas un déploiement distant ni une relecture humaine réelle. Les tables de test sont
+nettoyées après le test ; cette procédure fournit une trace durable en exploitation.
+
+## Référence historique TD 5
+
+Les résultats ci-dessous sont antérieurs aux nouveaux seuils et au registre.
 
 ## Choix de l'algorithme
 
@@ -160,3 +218,125 @@ peu discriminants.
 | Date | Run | Bon | Absurde | Hypothèse |
 |---|---|---|---|---|
 | | | | | |
+
+## Vérification de cette implémentation
+
+Exécution sur l'image complète et une base PostgreSQL `gazette_test` distincte :
+112 tests réussis, aucun ignoré. Après ajout des tests de compensation et de
+fenêtre historique, **115 tests réussissent sur GitHub Actions**, aucun ignoré,
+en 28,67 secondes ([job de validation](https://github.com/Tristan-Bourhis/Projet-M2Ops_La-Gazette/actions/runs/45839472795/job/139977022981)).
+Le test BERTopic de reproductibilité est réellement exécuté, avec deux
+avertissements UMAP attendus (graine fixée, calcul séquentiel). Ruff et actionlint passent.
+Les tests contrôlent les garde-fous et le rollback CLI ; les runs de reprise
+ci-dessous évaluent le vrai corpus. Le raccordement du runner reste à terminer.
+
+## Dossier de relecture locale
+
+Exporter sans préremplir les jugements :
+
+```sh
+python -m gazette.mlops review-export --run 123 --file /data/relecture
+```
+
+Le dossier contient le titre, l'extrait, la source et le lien de chaque article,
+le thème proposé, ses mots-clés et jusqu'à cinq autres titres du groupe.
+La personne répond oui/non et justifie chaque réponse. Un cas incertain est
+discuté avant de renseigner le booléen définitif. Un export répété ne remplace
+pas un fichier de réponses déjà rempli. Les dossiers restent dans `output/`
+ou `/data`, hors Git ; aucune relecture réelle n'est produite par les tests.
+
+## Amorçage sur le poste de Tristan — 26 novembre 2026
+
+Les huit flux RSS répondent après reprise, avec 331 articles propres disponibles
+à 13 h 41 UTC. Le run 1 évalue les 85 articles disponibles de la journée du 25/11 :
+2 thèmes, silhouette 0,073, bruit 16,5 %, plus grand groupe 53/85 = 62,35 %.
+Verdict **recale**, aucun thème publié : le garde-fou à 50 % fonctionne sur des
+données réelles. Cette reprise ne reconstitue pas tous les articles qui auraient
+été collectés si la machine avait tourné toute la veille.
+Les seuils ne sont pas abaissés pour faire passer ce run.
+
+Le run 2 d'amorçage couvre les dernières 24 heures, du 25/11 à 13:46:07 UTC au
+26/11 à 13:46:07 UTC : **331 articles, 16 thèmes, silhouette 0,15, bruit 16 %,
+plus grand groupe 43/331 = 12,99 %**. Verdict `candidat`. Version :
+`95275f0d558752a3f9c40cbdb3d3f39905dc03abdccecdd59cd58c614e599f38`.
+Aucun paramètre ni seuil n'a été modifié entre les deux évaluations ; seul
+le corpus diffère. Dossier humain : `output/relecture-run-2.md`, réponses vierges
+`output/reponses-run-2.json`. La version reste candidate en attendant cette revue.
+
+Les déploiements locaux `collecte-toutes-les-30-min` et `themes-6h30` sont servis
+par le collecteur permanent. Le passage Prefect de reprise
+`ba8ac945-99a7-4668-b9c6-20907d4c3dfc` collecte et nettoie bien, puis termine en
+échec sur `C03_taux_rejet_par_source` à cause des anciens fichiers périmés traités
+ce jour. Ce signal documenté n'interrompt pas le service ni sa planification.
+Tant que la première version n'est pas promue, le regroupement quotidien refuse
+de choisir implicitement une configuration : c'est un arrêt explicite prévu.
+
+## Relecture humaine du run 2
+
+Tristan a relu l'échantillon et validé les articles 1, 2, 4, 5, 7, 8, 9 et 10.
+Les articles 3 et 6 sont signalés à revoir : l'article 3 porte sur les élections
+espagnoles mais reste en bruit ; pour l'article 6, Tristan propose « Insolite ».
+Les dix jugements, leurs commentaires et les deux `theme_suggere` sont enregistrés
+dans `relectures_modele` avec l'auteur `Tristan`. Le retour original et le formulaire
+rempli sont conservés dans `output/`, hors Git. Huit validations sur dix décrivent
+cet échantillon, sans constituer une mesure de précision sur tout le corpus.
+
+« Insolite » est pour l'instant une suggestion éditoriale de la relecture. Elle
+n'est pas appliquée automatiquement aux articles en bruit. Les thèmes calculés,
+les métriques et le verdict historique restent intacts. Une rubrique éditoriale
+peut compléter le regroupement, avec une attribution explicite et tracée ; sa
+création ne doit pas être présentée comme un groupe découvert par HDBSCAN.
+
+## Mise en service et retour arrière réels — 26 novembre 2026
+
+La version A `95275f0d5587…` a été promue pour l'amorçage local après la relecture
+de Tristan. Le flow Prefect `11512db3-750a-484a-a9eb-ca8973f25841` a produit
+le run 4, accepté et publié : le pipeline lit effectivement le registre.
+
+Une modification unique et motivée a ensuite été évaluée : UMAP passe de 15
+à 10 voisins pour mieux séparer les sujets dans le petit corpus de la veille.
+Aucun seuil n'est modifié et aucune recherche automatique n'est exécutée.
+Le run 3 sur les mêmes 85 articles d'hier passe : 2 groupes, bruit 32,9 %,
+silhouette 0,088 et plus grand groupe 42,35 %. Version B :
+`283e984d1bf56dae3a40745054e8de515ddb04ee3fb74cfaa868717761865b1d`.
+
+Le registre local contient les événements 1 à 4 : initialisation A, promotion B,
+rollback B→A, rollback A→B. Les commandes CLI ont été exécutées sur la base
+de collecte, pas uniquement dans les tests. Le run 5 après restauration de B
+a publié 21 thèmes pour 332 articles, silhouette 0,179, bruit 26,2 %, plus grand
+groupe 9,04 %. Traces locales : `output/rollback-reel.txt` et
+`output/production-apres-rollback.log`. L'amorçage et cette démonstration locale
+ne sont pas présentés comme une promotion effectuée par GitHub Actions.
+
+Le script exact du futur job CI (`bin/evaluate-ci`) a été exécuté localement avec
+le candidat B : snapshot, restauration isolée, build, évaluation de la veille et
+nettoyage réussis. Le résultat reproduit le run 3. Les tests supplémentaires
+vérifient la compensation de déploiement et l'absence de textes de presse dans
+les logs publics. La validation locale ne remplace pas l'exécution du job
+d'évaluation par GitHub Actions.
+
+Le script de déploiement complet a ensuite réussi localement : réévaluation de
+la veille (run 6), redémarrage du collecteur et regroupement de vérification
+(run 7 : 357 articles, 21 thèmes, verdict candidat et publication effective).
+La production active est B. La connexion du plugin GitHub refuse les écritures
+avec HTTP 403 ; GitHub CLI a donc été authentifié par le propriétaire et la
+[PR nº 9](https://github.com/Tristan-Bourhis/Projet-M2Ops_La-Gazette/pull/9) est ouverte.
+La protection `Protect main` impose une approbation indépendante et les contrôles CI.
+
+## Activation GitHub préparée
+
+La configuration suivante est préparée ; son application attend l'autorisation
+explicite du propriétaire après le refus du contrôle automatique d'autorisation :
+
+- Runner `gazette-tristan-local`, label `gazette-production`, dans `output/runner`,
+  exécuté avec le compte local et son accès Docker. Le service utilisateur systemd
+  est décrit par `infra/gazette-runner.service.in` ; démarrage à l'ouverture de session.
+- Ajout du contrôle obligatoire `Évaluation hier` à `Protect main`, en conservant
+  l'approbation indépendante, les deux contrôles existants et l'interdiction de force push.
+- Environnement `production` limité aux branches protégées.
+- Approbation d'un mainteneur pour les workflows de toutes les contributions externes
+  (`all_external_contributors`). L'évaluation locale reste réservée aux PR internes.
+
+L'auto-merge n'est pas modifié. L'enregistrement du runner et ces réglages restent
+distincts de la publication du code. Garder le poste allumé, connecté et la session
+ouverte tant que ce poste héberge temporairement la production et le runner.

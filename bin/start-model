@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+# Le volume conserve aussi les révisions précédentes pour le retour arrière hors ligne.
+mkdir -p /data/modeles
+cp -rn /opt/hf/. /data/modeles/
+export HF_HOME=/data/modeles
+exec "$@"
