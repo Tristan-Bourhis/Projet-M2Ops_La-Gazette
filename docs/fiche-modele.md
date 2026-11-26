@@ -54,7 +54,8 @@ Voir `docs/mlops.md` : registre, promotion, journal et retour arrière. Le retou
 arrière rétablit les paramètres et la politique précédents pour le prochain run ;
 il ne recalcule pas les thèmes historiques et ne restaure pas le code applicatif.
 
-La relecture humaine de reprise sera réalisée par Tristan. Le dossier exporté
+La relecture humaine de reprise du run 2 a été réalisée par Tristan : huit
+affectations validées et deux signalées à revoir (articles 3 et 6). Le dossier exporté
 comporte dix articles, leur contexte de groupe et un formulaire vide. Les réponses
-ne sont enregistrées qu'après son retour ; un résultat automatique positif ne doit
+sont enregistrées après son retour ; un résultat automatique positif ne doit
 pas être présenté comme une validation éditoriale humaine.

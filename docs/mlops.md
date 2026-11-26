@@ -261,3 +261,19 @@ par le collecteur permanent. Le passage Prefect de reprise
 ce jour. Ce signal documenté n'interrompt pas le service ni sa planification.
 Tant que la première version n'est pas promue, le regroupement quotidien refuse
 de choisir implicitement une configuration : c'est un arrêt explicite prévu.
+
+## Relecture humaine du run 2
+
+Tristan a relu l'échantillon et validé les articles 1, 2, 4, 5, 7, 8, 9 et 10.
+Les articles 3 et 6 sont signalés à revoir : l'article 3 porte sur les élections
+espagnoles mais reste en bruit ; pour l'article 6, Tristan propose « Insolite ».
+Les dix jugements, leurs commentaires et les deux `theme_suggere` sont enregistrés
+dans `relectures_modele` avec l'auteur `Tristan`. Le retour original et le formulaire
+rempli sont conservés dans `output/`, hors Git. Huit validations sur dix décrivent
+cet échantillon, sans constituer une mesure de précision sur tout le corpus.
+
+« Insolite » est pour l'instant une suggestion éditoriale de la relecture. Elle
+n'est pas appliquée automatiquement aux articles en bruit. Les thèmes calculés,
+les métriques et le verdict historique restent intacts. Une rubrique éditoriale
+peut compléter le regroupement, avec une attribution explicite et tracée ; sa
+création ne doit pas être présentée comme un groupe découvert par HDBSCAN.
